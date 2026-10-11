@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-siyuan",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "思源完整连接层与五个 DSH 工具：CRUD、原始 HTTP、WS、JSON-RPC 和 MCP",
   "author": "leolee9086",
   "repository": {
@@ -12,7 +12,7 @@
     "url": "https://github.com/leolee9086/dsh-plugin-siyuan/issues"
   },
   "type": "module",
-  "license": "AGPL-3.0-only",
+  "license": "AGPL-3.0-or-later",
   "main": "./lib/host.js",
   "types": "./lib/host.d.ts",
   "exports": {
