@@ -1,0 +1,10 @@
+# 安装到宿主组合：siyuan 是供工具与其他插件复用的共享服务。
+# 默认从同一账户的思源 port.json 自动发现桌面内核；远程部署可显式配置 apiUrl。
+# 移动端需要主动配置地址。
+- insert:
+    - id: dsh-plugin-siyuan
+      name: dsh-plugin-siyuan
+      config:
+        apiUrl: auto
+        token: ""
+        timeoutMs: 15000

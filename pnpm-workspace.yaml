@@ -1,0 +1,2 @@
+minimumReleaseAgeExclude:
+  - '@leolee9086/sac-path-router@0.2.0'
