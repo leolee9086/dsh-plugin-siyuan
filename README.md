@@ -4,6 +4,14 @@
 
 697 条来自思源 v3.8.6 的接口契约用于发现和可选校验。原始转发也接受资源、上传、插件私有路径、WebDAV 等未收录路径；接口权限仍由思源内核决定。
 
+## 许可证与源码
+
+Copyright (c) 2026 leolee9086。本项目以 GNU Affero General Public License 第 3 版（`AGPL-3.0-only`）发布，可依该许可证使用、修改和再分发，不提供任何担保。完整条款见 [LICENSE](./LICENSE)。
+
+从 v0.1.2 起，插件采用 AGPL-3.0-only；此前 v0.1.1 的 MIT 声明不适用于本版本。源码、构建脚本和锁文件随安装包提供，也可从 [本版本源码](https://github.com/leolee9086/dsh-plugin-siyuan/tree/v0.1.2) 获取。
+
+接口契约由 [SiYuan v3.8.6](https://github.com/siyuan-note/siyuan/tree/v3.8.6) 的 `kernel/apicontract/schema.json` 生成，上游采用 GNU AGPL 第 3 版，版权归原作者及贡献者所有。插件对该契约进行字段提取和格式转换；生成脚本见 [scripts/gen-contract.mjs](./scripts/gen-contract.mjs)。后续复用思源实现时，保留所复用文件的版权、许可证及来源声明，并注明修改。
+
 ## 安装与配置
 
 需要 Node.js >=22.19.0。包内包含已构建的入口、声明和生成契约，安装不需要思源源码。
@@ -11,12 +19,12 @@
 在 DSH 官方插件管理器的包来源中填写固定版本地址：
 
 ```text
-https://github.com/leolee9086/dsh-plugin-siyuan#v0.1.1
+https://github.com/leolee9086/dsh-plugin-siyuan#v0.1.2
 ```
 
-也可填写 `github:leolee9086/dsh-plugin-siyuan#v0.1.1`。标签内包含已构建的 `lib/`，安装方不需要编译插件或运行测试。非桌面 profile 可使用 `dsh plugin --profile <name> add "github:leolee9086/dsh-plugin-siyuan#v0.1.1"`；桌面版通过官方插件管理器操作，安装后按其提示重载或重启。
+也可填写 `github:leolee9086/dsh-plugin-siyuan#v0.1.2`。标签内包含已构建的 `lib/`，安装方不需要编译插件或运行测试。非桌面 profile 可使用 `dsh plugin --profile <name> add "github:leolee9086/dsh-plugin-siyuan#v0.1.2"`；桌面版通过官方插件管理器操作，安装后按其提示重载或重启。
 
-本地安装也可在包来源填写 `dsh-plugin-siyuan-0.1.1.tgz` 的完整绝对路径。包通过 `dsh.bundle.patch` 声明安装补丁，并向宿主组合添加以下行。正常桌面安装无需修改源码或填写动态端口：
+本地安装也可在包来源填写 `dsh-plugin-siyuan-0.1.2.tgz` 的完整绝对路径。包通过 `dsh.bundle.patch` 声明安装补丁，并向宿主组合添加以下行。正常桌面安装无需修改源码或填写动态端口：
 
 ```yaml
 - id: dsh-plugin-siyuan
