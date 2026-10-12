@@ -37,7 +37,16 @@ function validState(v: any): boolean {
       && EndpointPolicy.decisions.includes(g.decision))
     && v.endpoints.every((e: any) => validEndpoint(e) && (!e.discoveredFor || ids.has(e.discoveredFor)));
 }
-const jsonSchema = (check: (value: any) => boolean) => ({ parse(value: any) {
+/** 0.2.2 的错误脱敏已丢失审批明细，只恢复可读取结构并记录这一事实。 */
+function restoreActivity(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || !("authorization" in value) || value.authorization !== "[redacted]") return value;
+  const { authorization: _lost, ...record } = value;
+  const previous = "error" in record && typeof record.error === "string" ? record.error : "";
+  return { ...record, error: [previous, "旧版错误脱敏导致审批明细丢失，无法恢复"].filter(Boolean).join("；") };
+}
+const jsonSchema = (check: (value: any) => boolean, normalize = (value: unknown) => value) => ({ parse(value: any) {
+  value = normalize(value);
   if (!check(value)) throw new Error("思源持久记录形状无效");
   return structuredClone(value);
 } });
@@ -52,7 +61,7 @@ const DOMAIN_SPEC = {
       && (v.authorization === undefined || Array.isArray(v.authorization) && v.authorization.every((entry: unknown) =>
         entry !== null && typeof entry === "object" && "endpointKey" in entry && typeof entry.endpointKey === "string"
         && "decision" in entry && typeof entry.decision === "string" && "outcome" in entry && typeof entry.outcome === "string"))
-      && ["checking", "awaiting-approval", "running", "succeeded", "failed", "partial", "denied", "uncertain", "sent"].includes(v.status)) },
+      && ["checking", "awaiting-approval", "running", "succeeded", "failed", "partial", "denied", "uncertain", "sent"].includes(v.status), restoreActivity) },
   },
 };
 
@@ -70,7 +79,7 @@ function replaceDiscovered(state: State, kernelId: string, items: Endpoint[]): v
 function recoverActivity(item: Activity): Activity {
   if (!["checking", "awaiting-approval", "running"].includes(item.status)) return item;
   return { ...item, status: item.status === "running" ? "uncertain" : "denied",
-    error: item.status === "running" ? "宿主重载中断，结果未确认，请勿重复写入" : "派发前被宿主重载中断" };
+    error: [item.error, item.status === "running" ? "宿主重载中断，结果未确认，请勿重复写入" : "派发前被宿主重载中断"].filter(Boolean).join("；") };
 }
 function targetId(state: State, explicit: unknown, sessionId?: string): unknown {
   return explicit ?? (sessionId ? state.sessions[sessionId] : undefined) ?? state.defaultKernelId;

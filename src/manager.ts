@@ -327,7 +327,9 @@ export class KernelManager {
       const output = await this.run(connection, name, args, exec);
       let parsed: unknown;
       try { parsed = JSON.parse(output.summary); } catch { parsed = output.summary; }
-      const safe = this.#secrets.value(parsed);
+      const projected = name === "siyuan_rpc" && args.channel === "mcp"
+        ? this.#secrets.mcp(parsed, String(args.method)) : parsed;
+      const safe = this.#secrets.value(projected);
       activity.resources = [...new Set([...activity.resources, ...resourceIds(safe)])];
       const notificationOnly = args.notification || (args.channel === "plugin" && Array.isArray(args.calls)
         && args.calls.length > 0 && args.calls.every(call => call.notification === true));

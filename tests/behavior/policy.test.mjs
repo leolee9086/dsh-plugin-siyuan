@@ -3,6 +3,19 @@ import assert from "node:assert/strict";
 import { EndpointPolicy as policy } from "../../lib/policy.js";
 import { SiYuanConnection } from "../../lib/connection.js";
 
+test("认证头按完整名称拒绝，包含敏感词的业务头可正常传入", async () => {
+  for (const name of ["Authorization", "proxy-authorization", " Cookie ", "set-cookie", "x-api-key", "X_Auth_Token", "access_token", "token"]) {
+    await assert.rejects(policy.identify("siyuan_rpc", { channel: "http", path: "/api/notebook/lsNotebooks", headers: { [name]: "fixture" } }), /认证头/);
+  }
+  const connection = new SiYuanConnection({});
+  try {
+    const headers = { "x-token-count": "42", "x-proxy-duration": "10", "x-authorization-policy": "manual", "x-cookie-enabled": "true" };
+    const items = await policy.identify("siyuan_rpc", { channel: "http", path: "/api/notebook/lsNotebooks", headers },
+      (method, path) => connection.http.describe(method, path));
+    assert.equal(items[0].key, notebook.key);
+  } finally { await connection.dispose(); }
+});
+
 const notebook = policy.endpoint("http", "POST", "/api/notebook/lsNotebooks");
 const grant = (item, decision = "allow", kernelId = "local") => ({ kernelId, endpointKey: item.key, decision });
 

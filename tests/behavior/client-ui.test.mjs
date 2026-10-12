@@ -3,6 +3,40 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createClientUI } from "../../lib/client-ui.js";
+import { SecretFilter } from "../../lib/secrets.js";
+import { ControlState } from "../../lib/control-state.js";
+import { EndpointPolicy } from "../../lib/policy.js";
+
+test("活动经脱敏、持久化解析与返回投影后保留审批，旧损坏记录可读", () => {
+  const filter = new SecretFilter(); filter.remember("fixture-activity-credential");
+  const endpoint = EndpointPolicy.endpoint("http", "POST", "/api/notebook/lsNotebooks");
+  const row = { id: "operation-regression", sessionId: "session-1", callId: "call-regression", time: "2026-10-12T03:00:00Z",
+    tool: "siyuan_query", kernelId: "local", kernelName: "本机思源", status: "succeeded", endpoints: [endpoint], resources: [],
+    authorization: [{ endpointKey: endpoint.key, decision: "allow", outcome: "endpoint-allowed" }] };
+  const schema = ControlState.DOMAIN_SPEC.tables.activity.valueSchema;
+  const stored = schema.parse(JSON.parse(JSON.stringify(filter.value(row))));
+  assert.deepEqual(stored, row);
+  const display = item => render(ui.ActivityView, { sessionId: row.sessionId, state: config, query: "", offset: 0,
+    result: JSON.parse(JSON.stringify(filter.value({ sessionId: row.sessionId, pageOffset: 0, total: 1, items: [item] }))),
+    permission: "workspace-write", openManagement() {}, revealCall() {} });
+  assert.match(display(stored), /端点允许 · 自动通过/);
+  const old = { ...row, authorization: "[redacted]", error: "原有说明" };
+  const restored = schema.parse(old);
+  assert.equal(restored.authorization, undefined);
+  assert.equal(restored.status, row.status);
+  assert.equal(old.authorization, "[redacted]");
+  assert.deepEqual(schema.parse(restored), restored);
+  const markup = display(restored);
+  for (const text of [row.id, row.callId, "成功", "原有说明", "旧版错误脱敏导致审批明细丢失，无法恢复"]) assert.ok(markup.includes(text), text);
+  assert.doesNotMatch(markup, /端点允许 · 自动通过/);
+  const interrupted = ControlState.recoverActivity(schema.parse({ ...old, status: "running" }));
+  assert.equal(interrupted.status, "uncertain");
+  assert.match(interrupted.error, /明细丢失.*重载中断/);
+  assert.deepEqual(schema.parse({ ...row, authorization: undefined }), { ...row, authorization: undefined });
+  for (const authorization of [null, {}, "redacted", "unexpected", ["bad"]]) {
+    assert.throws(() => schema.parse({ ...row, authorization }), /形状无效/);
+  }
+});
 
 // 通过领域入口取得组件，使用真实 React；无 ModuleLoader、插槽、ctx 或 Hook 替换。
 const ui = createClientUI(React, { icon: "data:image/svg+xml;base64,PHN2Zy8+" });

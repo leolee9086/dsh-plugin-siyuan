@@ -14,8 +14,8 @@
 - `policy.test.mjs`：端点识别、逐项授权、包裹调用拒绝、过滤和分页；HTTP 使用离线契约查询。
 - `control-state.test.mjs`：核心选择、换绑撤权、发现目录更新、重载恢复、配置校验和过期配置拒绝。
 - `management-input.test.mjs`：内容类型、字节流 JSON、大小限制和查询校验。
-- `secrets.test.mjs`：输出与错误的凭据过滤。
-- `client-ui.test.mjs`：React 静态渲染，通过 props 提供表单、端点和活动数据。
+- `secrets.test.mjs`：跨核心凭据与编码形式遮罩、敏感词业务字段的类型保留、MCP 媒体位置与业务对象区分。
+- `client-ui.test.mjs`：真实 React 静态渲染；活动经过凭据过滤、持久化解析、返回投影和 JSON 传输后保留审批，旧版错误脱敏记录可读且注明明细丢失。
 
 ## 协议和工具行为
 
