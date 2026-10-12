@@ -17,7 +17,7 @@ function approvalRoute(decision: Decision, mode: string | undefined) {
 export type Protocol = "http" | "mcp" | "plugin" | "ws" | "connection";
 export interface Endpoint {
   key: string; protocol: Protocol; method: string; path: string; detail: string;
-  description: string; blocked?: string; discoveredFor?: string;
+  description: string; blocked?: string; discoveredFor?: string; inputSchema?: Record<string, unknown>;
 }
 export interface Grant { kernelId: string; endpointKey: string; decision: Decision }
 function endpoint(protocol: Protocol, method: string, path = "", detail = "", description = ""): Endpoint {

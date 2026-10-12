@@ -15,6 +15,7 @@ export interface State {
     grants: Grant[];
     endpoints: Endpoint[];
     sessions: Record<string, string>;
+    gatewayTools?: boolean;
 }
 export interface Activity {
     id: string;

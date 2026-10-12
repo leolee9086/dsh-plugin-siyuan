@@ -21,9 +21,12 @@ declare const filterEndpoints: (items: Endpoint[], grants: import("./policy.js")
         description: string;
         blocked?: string;
         discoveredFor?: string;
+        inputSchema?: Record<string, unknown>;
     }[];
 };
 import type { ToolArgs } from "./tool.js";
+import { type PublicationPort } from "./gateway-publication.js";
+export type { GatewayHost } from "./gateway-publication.js";
 export interface Execution {
     signal?: AbortSignal;
     callId?: string;
@@ -82,6 +85,27 @@ export declare class KernelManager {
     private credentials;
     private run;
     private approve?;
+    /** 可选网关出现/消失时仅挂载/释放扩展工具，五个基础工具始终独立可用。 */
+    attachGateway(port: PublicationPort): () => void;
+    private syncGateway;
+    gatewayState(): {
+        http: number;
+        mcp: number;
+        missingSchemas: number;
+        available: boolean;
+        requested: boolean;
+        registered: number;
+        error: string;
+    };
+    registerGateway(enabled: boolean): Promise<{
+        http: number;
+        mcp: number;
+        missingSchemas: number;
+        available: boolean;
+        requested: boolean;
+        registered: number;
+        error: string;
+    }>;
     defineTool(name: string, validate: (args: unknown) => boolean): void;
     readonly contract: import("./contract.js").Contract;
     constructor(domain: Domain, credentials: Credentials, run: Runner, approve?: ((exec: Execution, reason: string, decision: Decision) => Promise<string>) | undefined);
@@ -96,6 +120,15 @@ export declare class KernelManager {
     publicState(): Promise<{
         revision: number;
         defaultKernelId: string | null;
+        gateway: {
+            http: number;
+            mcp: number;
+            missingSchemas: number;
+            available: boolean;
+            requested: boolean;
+            registered: number;
+            error: string;
+        };
         kernels: {
             credential: {
                 configured: boolean;
@@ -124,6 +157,7 @@ export declare class KernelManager {
             description: string;
             blocked?: string;
             discoveredFor?: string;
+            inputSchema?: Record<string, unknown>;
         }[];
     };
     activities(sessionId: string, offset?: number, limit?: number): any;

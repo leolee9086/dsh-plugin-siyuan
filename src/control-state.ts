@@ -9,6 +9,7 @@ export interface Kernel {
 export interface State {
   revision: number; kernels: Kernel[]; defaultKernelId: string | null;
   grants: Grant[]; endpoints: Endpoint[]; sessions: Record<string, string>;
+  gatewayTools?: boolean;
 }
 export interface Activity {
   id: string; sessionId: string; callId: string; time: string; tool: string; kernelId: string; kernelName: string;
@@ -19,10 +20,12 @@ const isRecord = (v: any) => v !== null && typeof v === "object" && !Array.isArr
 const validEndpoint = (v: any) => isRecord(v) && ["http", "mcp", "plugin", "ws", "connection"].includes(v.protocol)
   && ["method", "path", "detail", "description", "key"].every(k => typeof v[k] === "string")
   && v.key === endpoint(v.protocol, v.method, v.path, v.detail).key
-  && (v.discoveredFor === undefined || typeof v.discoveredFor === "string");
+  && (v.discoveredFor === undefined || typeof v.discoveredFor === "string")
+  && (v.inputSchema === undefined || isRecord(v.inputSchema) && v.inputSchema.type === "object");
 function validState(v: any): boolean {
   if (!isRecord(v) || !Number.isSafeInteger(v.revision) || v.revision < 1 || !Array.isArray(v.kernels)
-    || !Array.isArray(v.grants) || !Array.isArray(v.endpoints) || !isRecord(v.sessions)) return false;
+    || !Array.isArray(v.grants) || !Array.isArray(v.endpoints) || !isRecord(v.sessions)
+    || v.gatewayTools !== undefined && typeof v.gatewayTools !== "boolean") return false;
   const ids = new Set<string>();
   for (const kernel of v.kernels) {
     if (!isRecord(kernel) || typeof kernel.id !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(kernel.id)

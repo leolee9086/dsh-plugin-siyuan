@@ -16,6 +16,7 @@ export interface Endpoint {
     description: string;
     blocked?: string;
     discoveredFor?: string;
+    inputSchema?: Record<string, unknown>;
 }
 export interface Grant {
     kernelId: string;
@@ -54,6 +55,7 @@ declare function filterEndpoints(items: Endpoint[], grants: Grant[], kernelId: s
         description: string;
         blocked?: string;
         discoveredFor?: string;
+        inputSchema?: Record<string, unknown>;
     }[];
 };
 /** 逐项授权算法只认识端点和批准结果；审批设施由调用者参数化提供。 */

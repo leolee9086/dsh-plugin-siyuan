@@ -1,6 +1,7 @@
 /** 宿主共享的核心管理器。持久配置不含凭据值，对消费者只开放受控 invoke。 */
 import { randomUUID } from "node:crypto";
 import Ajv from "ajv";
+import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { SiYuanConnection } from "./connection.js";
 import { normalizeConfig, KernelError } from "./api.js";
 import { loadContract } from "./contract.js";
@@ -8,6 +9,8 @@ import { SecretFilter } from "./secrets.js";
 import { EndpointPolicy, type Endpoint, type Decision } from "./policy.js";
 const { endpoint, blockedHttp, cleanPath, identify, filterEndpoints } = EndpointPolicy;
 import type { ToolArgs } from "./tool.js";
+import { GatewayPublication, type PublicationPort } from "./gateway-publication.js";
+export type { GatewayHost } from "./gateway-publication.js";
 
 export interface Execution { signal?: AbortSignal; callId?: string; name?: string; agent?: { session: { id: string } } }
 export type { Kernel } from "./control-state.js";
@@ -38,6 +41,36 @@ export class KernelManager {
   #secrets = new SecretFilter();
   #connections = new Set<SiYuanConnection>();
   #closed = false;
+  #publication?: GatewayPublication;
+  #publicationError = "";
+  /** 可选网关出现/消失时仅挂载/释放扩展工具，五个基础工具始终独立可用。 */
+  attachGateway(port: PublicationPort) {
+    if (this.#publication) throw new Error("思源工具箱已连接");
+    const publication = new GatewayPublication(this.contract, this.invoke.bind(this), port);
+    this.#publication = publication;
+    this.syncGateway();
+    return () => {
+      publication.dispose();
+      if (this.#publication === publication) { this.#publication = undefined; this.#publicationError = ""; }
+    };
+  }
+  private syncGateway() {
+    try { this.#publication?.sync(this.#state); this.#publicationError = ""; }
+    catch (error) { this.#publicationError = this.#secrets.error(error).message; }
+  }
+  gatewayState() {
+    return { available: !!this.#publication, requested: this.#state.gatewayTools === true,
+      registered: this.#publication?.count ?? 0, error: this.#publicationError,
+      ...GatewayPublication.inventory(this.contract, this.#state) };
+  }
+  async registerGateway(enabled: boolean) {
+    return this.serial(async () => {
+      if (enabled && !this.#publication) throw new Error("请先安装并启用工具箱插件 dsh-tool-gateway");
+      await this.commit({ ...this.#state, gatewayTools: enabled });
+      if (this.#publicationError) throw new Error(this.#publicationError);
+      return this.gatewayState();
+    });
+  }
   #validators = new Map<string, (args: unknown) => boolean>();
   defineTool(name: string, validate: (args: unknown) => boolean) { this.#validators.set(name, validate); }
   #writeChain: Promise<unknown> = Promise.resolve();
@@ -84,6 +117,7 @@ export class KernelManager {
   private async commit(state: State) {
     state.revision = this.#state.revision + 1;
     await this.#config.put("state", state); this.#state = state;
+    this.syncGateway();
   }
   private async connect(kernel: Kernel, signal?: AbortSignal): Promise<SiYuanConnection> {
     if (this.#closed) throw new Error("思源管理器已卸载");
@@ -115,7 +149,7 @@ export class KernelManager {
     return [...new Map([...staticItems, ...common, ...extended].map(item => [item.key, item])).values()];
   }
   async publicState() {
-    return { revision: this.#state.revision, defaultKernelId: this.#state.defaultKernelId,
+    return { revision: this.#state.revision, defaultKernelId: this.#state.defaultKernelId, gateway: this.gatewayState(),
       kernels: await Promise.all(this.#state.kernels.map(async kernel => ({ ...kernel,
         credential: await this.credentials.describe(refFor(kernel.id)) }))) };
   }
@@ -241,11 +275,11 @@ export class KernelManager {
         const items: Endpoint[] = [];
         let cursor: string | undefined; const seen = new Set<string>();
         do {
-          const list = await connection.mcp.request("tools/list", cursor ? { cursor } : undefined) as any;
-          if (!Array.isArray(list.tools)) throw new Error("MCP 工具目录无效");
-          for (const tool of list.tools) if (typeof tool.name === "string") {
-            // 描述为远端内容，仅展示；不能改变任何权限。
-            items.push({ ...endpoint("mcp", "tools/call", "", tool.name, String(tool.description ?? "").slice(0, 1000)), discoveredFor: kernelId });
+          const list = ListToolsResultSchema.parse(await connection.mcp.request("tools/list", cursor ? { cursor } : undefined));
+          for (const tool of list.tools) {
+            // 保存协议提供的完整参数 schema，名称与 schema 都属于这一个核心。
+            items.push({ ...endpoint("mcp", "tools/call", "", tool.name, String(tool.description ?? "").slice(0, 1000)),
+              discoveredFor: kernelId, inputSchema: structuredClone(tool.inputSchema) });
           }
           cursor = typeof list.nextCursor === "string" ? list.nextCursor : undefined;
           if (cursor) { if (seen.has(cursor) || seen.size >= 100) throw new Error("MCP 分页游标重复或超限"); seen.add(cursor); }
@@ -271,7 +305,7 @@ export class KernelManager {
     delete args.kernelId;
     const started = Date.now();
     const activity: Activity = { id: randomUUID(), sessionId: sessionId ?? "service", callId: exec?.callId ?? "",
-      time: new Date().toISOString(), tool: name, kernelId: String(kernelId ?? ""), kernelName: "", endpoints: [],
+      time: new Date().toISOString(), tool: exec?.name?.startsWith("siyuan_") ? exec.name : name, kernelId: String(kernelId ?? ""), kernelName: "", endpoints: [],
       resources: resourceIds(args), status: "checking" };
     let connection: SiYuanConnection | undefined; let sent = false;
     try {
@@ -356,7 +390,8 @@ export class KernelManager {
   safe(value: unknown) { return this.#secrets.value(value); }
   error(error: unknown) { return this.#secrets.error(error); }
   async close() {
-    this.#closed = true; await this.#writeChain;
+    this.#closed = true; this.#publication?.dispose(); this.#publication = undefined;
+    await this.#writeChain;
     await Promise.allSettled([...this.#connections].map(connection => this.release(connection)));
     await this.domain.close();
   }

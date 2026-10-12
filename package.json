@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-siyuan",
-  "version": "0.2.4",
-  "description": "思源完整连接层与五个 DSH 工具：CRUD、原始 HTTP、WS、JSON-RPC 和 MCP",
+  "version": "0.3.0",
+  "description": "思源连接管理与 DSH 工具箱协同：五个基础工具、697条 HTTP 契约、MCP 工具发现与逐端点授权",
   "author": "leolee9086",
   "repository": {
     "type": "git",

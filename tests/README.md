@@ -18,9 +18,11 @@
 - `client-ui.test.mjs`：真实 React 静态渲染；活动经过凭据过滤、持久化解析、返回投影和 JSON 传输后保留审批，旧版错误脱敏记录可读且注明明细丢失。
 - `client-navigation.test.mjs`：真实 React 与 jsdom 验证卡片点击、参数展开和定位反馈；通过领域参数注入历史加载，验证补载历史、PTC 根与子调用、原生展开事件、换会话和卸载取消。jsdom 无布局引擎，几何读数单独提供，实际滚动由安装后的软件验收。
 
+- `gateway-publication.test.mjs`：全部 697 条 HTTP 契约编译、请求映射、MCP 原始 schema、同名跨核心区分、增删改同步、核心改名、默认关闭组、撤回顺序、旧工具失效与管理组件展示。
+
 ## 协议和工具行为
 
-根目录测试使用本地隔离的 HTTP、WS、JSON-RPC 与 MCP 协议服务，检验连接库与五个工具的数据行为。
+根目录测试使用本地隔离的 HTTP、WS、JSON-RPC 与 MCP 协议服务，检验连接库与基础工具的数据行为。`gateway.test.mjs` 从 `KernelManager` 的存储和凭据端口注入隔离数据，验证 MCP 发现保存完整 schema、全量发布、端点拒绝不派发、实际 HTTP/MCP 往返、multipart 文件内容、两级 MCP 授权、活动的工具名与 callId，以及网关重连和核心删除。
 
 ## 宿主接口集成
 

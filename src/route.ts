@@ -39,6 +39,9 @@ export function createRoute(requestRejection: (request: IncomingMessage) => 401 
         case "declare": result = await manager.declare(input); break;
         case "test": result = await manager.inspectConnection(required(input.kernelId)); break;
         case "discoverMcp": result = await manager.inspectConnection(required(input.kernelId), true); break;
+        case "registerGateway":
+          if (typeof input.enabled !== "boolean") throw new Error("工具箱注册选择必须为布尔值");
+          result = await manager.registerGateway(input.enabled); break;
         default: throw new Error("未知管理操作");
       }
       json(response, 200, manager.safe(result));

@@ -1,8 +1,8 @@
 # dsh-plugin-siyuan
 
-思源笔记的 DSH 插件：多核心连接配置、逐端点授权、左侧思源入口和右侧会话活动记录，保留恰好五个模型工具。
+思源笔记的 DSH 插件：检索笔记、创建与修改内容，多核心连接配置、逐端点授权和会话活动记录。提供五个基础工具，并可将 697 条 HTTP 契约与发现的 MCP 工具注册到工具箱，按会话选择开启。
 
-**0.2.4** 点击会话中的思源工具卡片打开右侧「思源活动」；侧栏「定位工具调用」自动加载来源历史、展开折叠组并跳到对应调用，支持 PTC 子调用。卡片参数与结果可独立展开。保留 0.2.3 的凭据脱敏及历史活动记录修复。
+**0.3.0** 新增管理界面的「工具箱协同」：全量注册 HTTP / MCP 工具，保留完整参数 schema，新工具默认关闭。注册选择持久化，MCP 重新发现时同步目录；所有调用沿用思源端点授权与活动记录。保留工具卡打开活动侧栏、历史调用定位及凭据脱敏能力。
 
 ## 连接与凭据
 
@@ -51,7 +51,32 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务；两种询�
 
 只有本机明确目标的资源 ID 才提供 `siyuan://blocks/...` 快速打开；远程核心只显示 ID，避免在本机打开另一个库的同名资源。没有解析出位置时如实显示未知，不推断完整影响范围。
 
-## 五个工具
+## 工具箱协同
+
+安装 [dsh-tool-gateway v0.3.0 或更新版](https://github.com/leolee9086/dsh-tool-gateway)，在思源管理界面点击「注册全部 HTTP / MCP 工具」。管理界面显示 HTTP 契约数、MCP 工具数和实际注册数；新注册的「思源 HTTP 端点」组与各核心的「思源 MCP」组默认关闭，到右侧工具箱选择要在当前会话开启的工具或工具组。
+
+工具箱开关决定当前会话能否使用工具；思源端点授权决定具体核心是否允许执行。注册与开启都不会自动授予端点权限。MCP 调用仍分别检查 `tools/call` 与具体工具名。目录包含全部 697 条已知 HTTP 契约；原有包裹、代理等端点限制继续生效，注册工具的说明会列出对应限制。
+
+- HTTP 工具名称含方法和 handler，说明包含完整路径；可按接口路径搜索。参数 `body` 使用原始请求 schema 及完整 `$defs`，支持 `query`、动态路由的 `pathParams` 和业务 `headers`。`kernelId` 可显式指定核心，省略时使用会话选择或默认核心。
+- MCP 工具直接使用发现的完整 `inputSchema`，参数就是该工具的原参数，固定调用发现它的核心。同名工具在不同核心中分别注册；旧版目录缺少 schema 的记录会提示重新发现。
+- 新目录注册后，重新发现 MCP 会新增、更新或撤回对应工具。核心改名更新组标题，更换地址或删除核心会撤回该核心的 MCP 目录。注册选择保存到本机，重启后自动恢复；网关卸载时撤回扩展工具，重新连接后恢复。
+- 「撤回扩展工具」撤回 HTTP / MCP 注册并保存这一选择，五个基础工具继续可用。网关缺席时也可使用基础工具。
+
+例如，搜索 `/api/query/sql` 的 HTTP 工具后，参数为：
+
+```json
+{"body":{"stmt":"SELECT id, content FROM blocks WHERE type = 'd' LIMIT 10"},"kernelId":"local"}
+```
+
+HTTP 原始字节请求的 `body` 使用 base64。表单文件的名称填入 `body` 的对应契约字段，内容放入 `files`；`/api/file/putFile` 示例：
+
+```json
+{"body":{"path":"/data/example.txt","file":"example.txt"},"files":[{"field":"file","name":"example.txt","base64":"aGk=","mimeType":"text/plain"}]}
+```
+
+工具名保持稳定，普通授权修改和再次同步不会重建未变化的工具，也不会覆盖工具箱保存的会话开关。HTTP / MCP 扩展调用同样在「思源活动」中记录实际生成工具名，可通过 callId 定位来源调用。
+
+## 五个基础工具
 
 | 工具 | action / channel | 用途 |
 | --- | --- | --- |
@@ -119,7 +144,7 @@ export async function apply(ctx) {
 在 DSH 插件市场中使用以下 GitHub 来源安装或升级：
 
 ```text
-https://github.com/leolee9086/dsh-plugin-siyuan#v0.2.4
+https://github.com/leolee9086/dsh-plugin-siyuan#v0.3.0
 ```
 
 客户端通过 `./client` 和 `dsh.client` 声明加载。构建将官方思源 SVG 嵌入客户端，与宿主 JS、类型声明、契约一起放入 `lib/`。
@@ -130,7 +155,7 @@ pnpm run check
 node scripts/gen-contract.mjs /path/to/siyuan/kernel/apicontract/schema.json 3.8.6
 ```
 
-`test:behavior` 运行 37 项独立行为测试，`test:protocol` 运行 25 项协议与工具行为测试；后者使用隔离 HTTP/WS/MCP 夹具。详细范围见 [测试说明](./tests/README.md)。`release:pack` 执行检查并生成安装包；开发代码见 [main 分支](https://github.com/leolee9086/dsh-plugin-siyuan/tree/main)。
+`test:behavior` 运行 42 项独立行为测试，`test:protocol` 运行 26 项协议与工具行为测试；后者使用隔离 HTTP/WS/MCP 夹具，覆盖扩展工具从注册、授权到实际调用和活动记录的完整链路。详细范围见 [测试说明](./tests/README.md)。`release:pack` 执行检查并生成安装包；开发代码见 [main 分支](https://github.com/leolee9086/dsh-plugin-siyuan/tree/main)。
 
 ## 许可证与来源
 

@@ -2,7 +2,7 @@
 import { callKernel } from "./api.js";
 import { SiYuanConnection } from "./connection.js";
 import { rpcTool } from "./rpc-tool.js";
-import { KernelManager, managedTools, DOMAIN_SPEC } from "./manager.js";
+import { KernelManager, managedTools, DOMAIN_SPEC, type GatewayHost } from "./manager.js";
 import { createRoute, ROUTE } from "./route.js";
 import { EndpointPolicy } from "./policy.js";
 import { toolDef, requiredText as text, requiredId as id, optionalText, contentType, type ToolArgs } from "./tool.js";
@@ -139,6 +139,13 @@ export async function apply(ctx: any, rawConfig: unknown) {
       ctx.effect(() => ctx.get("tools").register(tool), `${name}: ${tool.name}`);
     }
   } finally { await template.dispose(); }
+  // 子作用域等待可选网关；网关卸载时同时撤回扩展工具，重新挂载时按保存的选择恢复。
+  ctx.inject(["toolGateway"], (scope: GatewayHost) => {
+    scope.effect(() => manager.attachGateway({
+      registerGroup: spec => scope.get("toolGateway").registerGroup(spec),
+      registerTool: tool => scope.get("tools").register(tool),
+    }), `${name}: gateway publication`);
+  });
   // 与 gateway 同样延迟挂载界面路由，headless 模式不依赖 webServer。
   ctx.inject(["webServer", "connection"], (scope: any) => {
     scope.effect(() => scope.get("webServer").register({ kind: "exact", path: ROUTE,
