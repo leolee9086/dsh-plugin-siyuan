@@ -26,13 +26,11 @@ declare function query(params: URLSearchParams): {
     kernelId?: undefined;
     filter?: undefined;
 };
-declare function mutationAllowed(origin: string | undefined, host: string | undefined): boolean;
 declare function requireJson(contentType: string | undefined): void;
 declare function body(chunks: AsyncIterable<Uint8Array | string>): Promise<Record<string, unknown>>;
 export declare const ManagementInput: Readonly<{
     required: typeof required;
     query: typeof query;
-    mutationAllowed: typeof mutationAllowed;
     requireJson: typeof requireJson;
     body: typeof body;
 }>;

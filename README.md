@@ -2,7 +2,7 @@
 
 思源笔记的 DSH 插件：多核心连接配置、逐端点授权、左侧思源入口和右侧会话活动记录，保留恰好五个模型工具。
 
-`main` 分支包含 **0.2.0 开发版本**：多核心配置、端点授权及界面实现。构建与独立行为测试已通过，宿主接口集成和真实软件运行尚未验收。公开标签 v0.1.3 仍是旧连接层版本，不包含本页描述的新授权界面；0.2.0 尚无版本标签、安装包或 GitHub Release。
+**0.2.1** 修复桌面端保存端点授权及连接配置时的 403：管理路由采用宿主统一鉴权，支持桌面应用转发的已认证请求。
 
 ## 连接与凭据
 
@@ -14,7 +14,7 @@ API token 只由人工在密码框写入 DSH 的本机 `credentials` 服务，�
 
 所有核心的已配置凭据共用输出过滤：CRUD、HTTP、插件 RPC、MCP、WS、管理返回和错误都经过安全投影，覆盖原值、JSON 字符串、URL 编码、base64/hex 及含凭据的整体编码响应。敏感配置字段被遮罩；MCP 图片和音频字节只保留说明。错误不转发原始异常对象、stack、cause 或请求配置。过滤作用于本插件的返回接口；本机文件访问和浏览器权限由宿主管理。
 
-DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务。管理路由通过 `connection.requestRejection` 鉴权；变更另要求同源 Origin 与 JSON。持久化或凭据服务不可用时失败关闭，不降级为允许。旧组合里的非空 `token` 在首次初始化时导入 credentials；应由人工清除旧组合中的明文配置，不要将其内容发送到会话。
+DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务。管理路由通过 `connection.requestRejection` 统一校验来源和身份，兼容 Web 与桌面端；变更请求使用 JSON。持久化或凭据服务不可用时失败关闭，不降级为允许。旧组合里的非空 `token` 在首次初始化时导入 credentials；应由人工清除旧组合中的明文配置，不要将其内容发送到会话。
 
 ## 端点授权
 
@@ -107,7 +107,13 @@ export async function apply(ctx) {
     timeoutMs: 15000
 ```
 
-本次新增客户端出口 `./client` 和 `dsh.client` 声明。构建将官方思源 SVG 嵌入客户端，与宿主 JS、类型声明、契约一起放入 `lib/`。安装和正在运行的 DSH 界面验收由人工进行；源码检查通过不代表已安装或运行界面已更新。
+在 DSH 插件市场中使用以下 GitHub 来源安装或升级：
+
+```text
+https://github.com/leolee9086/dsh-plugin-siyuan#v0.2.1
+```
+
+客户端通过 `./client` 和 `dsh.client` 声明加载。构建将官方思源 SVG 嵌入客户端，与宿主 JS、类型声明、契约一起放入 `lib/`。
 
 ```sh
 pnpm install
@@ -115,7 +121,7 @@ pnpm run check
 node scripts/gen-contract.mjs /path/to/siyuan/kernel/apicontract/schema.json 3.8.6
 ```
 
-`test:behavior` 运行 22 项独立行为测试，`test:protocol` 运行 25 项协议与工具行为测试；后者使用隔离 HTTP/WS/MCP 夹具，凭据过滤只使用测试字符串，不读取实际 token。测试不手写模拟 Harness 上下文或宿主服务，详细范围和未验证的集成事项见 [测试说明](./tests/README.md)。`release:pack` 可执行全部检查并生成包，当前未生成 0.2.0 发布包。代码可从 [main 分支](https://github.com/leolee9086/dsh-plugin-siyuan/tree/main) 获取；[v0.1.3](https://github.com/leolee9086/dsh-plugin-siyuan/tree/v0.1.3) 不包含本次授权功能。
+`test:behavior` 运行 22 项独立行为测试，`test:protocol` 运行 25 项协议与工具行为测试；后者使用隔离 HTTP/WS/MCP 夹具。详细范围见 [测试说明](./tests/README.md)。`release:pack` 执行检查并生成安装包；开发代码见 [main 分支](https://github.com/leolee9086/dsh-plugin-siyuan/tree/main)。
 
 ## 许可证与来源
 

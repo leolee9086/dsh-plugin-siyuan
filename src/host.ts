@@ -127,6 +127,10 @@ export async function apply(ctx: any, rawConfig: unknown) {
   // 与 gateway 同样延迟挂载界面路由，headless 模式不依赖 webServer。
   ctx.inject(["webServer", "connection"], (scope: any) => {
     scope.effect(() => scope.get("webServer").register({ kind: "exact", path: ROUTE,
-      handler: createRoute(scope, manager) }), `${name}: management`);
+      handler: createRoute(request => {
+        const connection = scope.get("connection");
+        if (!connection || typeof connection.requestRejection !== "function") return 503;
+        return connection.requestRejection(request);
+      }, manager) }), `${name}: management`);
   });
 }

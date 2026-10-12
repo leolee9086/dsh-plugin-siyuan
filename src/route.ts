@@ -10,12 +10,12 @@ function json(response: ServerResponse, status: number, value: unknown) {
 }
 import { ManagementInput } from "./management-input.js";
 const { required } = ManagementInput;
-export function createRoute(ctx: any, manager: KernelManager) {
+export function createRoute(requestRejection: (request: IncomingMessage) => 401 | 403 | 503 | undefined, manager: KernelManager) {
   return async (request: IncomingMessage, response: ServerResponse) => {
     try {
-      const connection = ctx.get("connection");
-      if (!connection || typeof connection.requestRejection !== "function") { json(response, 503, { error: "鉴权服务不可用" }); return; }
-      const rejection = connection.requestRejection(request);
+      // 宿主统一校验来源和身份；桌面转发已验证页面来源，送达此处时不携带 Origin。
+      const rejection = requestRejection(request);
+      if (rejection === 503) { json(response, 503, { error: "鉴权服务不可用" }); return; }
       if (rejection !== undefined) { json(response, rejection, { error: "未通过管理界面身份验证" }); return; }
       const url = new URL(request.url ?? ROUTE, "http://localhost");
       if (request.method === "GET") {
@@ -27,10 +27,6 @@ export function createRoute(ctx: any, manager: KernelManager) {
         }
       }
       if (request.method !== "POST") { json(response, 405, { error: "仅支持 GET/POST" }); return; }
-      // Cookie 鉴权之外，变更要求浏览器 Origin；禁止跨站表单、无 Origin 的工具请求。
-      if (!ManagementInput.mutationAllowed(request.headers.origin, request.headers.host)) {
-        json(response, 403, { error: "管理变更必须来自本应用界面" }); return;
-      }
       ManagementInput.requireJson(request.headers["content-type"]);
       const input = await ManagementInput.body(request);
       let result: unknown = { ok: true };

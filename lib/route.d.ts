@@ -2,4 +2,4 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { KernelManager } from "./manager.js";
 export declare const ROUTE = "/api/siyuan-control";
-export declare function createRoute(ctx: any, manager: KernelManager): (request: IncomingMessage, response: ServerResponse) => Promise<void>;
+export declare function createRoute(requestRejection: (request: IncomingMessage) => 401 | 403 | 503 | undefined, manager: KernelManager): (request: IncomingMessage, response: ServerResponse) => Promise<void>;

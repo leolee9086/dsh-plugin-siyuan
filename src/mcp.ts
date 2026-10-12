@@ -21,7 +21,7 @@ export class McpConnections {
     const bound = await this.http.bindFetch(lifetime);
     lifetime.throwIfAborted();
     if (this.closed) throw new Error("MCP 服务已卸载");
-    const client = new Client({ name: "dsh-plugin-siyuan", version: "0.2.0" });
+    const client = new Client({ name: "dsh-plugin-siyuan", version: "0.2.1" });
     const transport = new StreamableHTTPClientTransport(bound.url("/mcp"), {
       fetch: (input, init) => bound.fetch(input, init, { timeoutMs: 0, signal: lifetime }),
       reconnectionOptions: { maxRetries: 0, maxReconnectionDelay: 30000, initialReconnectionDelay: 1000, reconnectionDelayGrowFactor: 1.5 },

@@ -3,10 +3,8 @@ import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { ManagementInput as input } from "../../lib/management-input.js";
 
-test("管理变更要求同源 Origin 和 JSON，不依赖假鉴权上下文", () => {
-  assert.equal(input.mutationAllowed(undefined, "127.0.0.1:19387"), false);
-  assert.equal(input.mutationAllowed("http://other.invalid", "127.0.0.1:19387"), false);
-  assert.equal(input.mutationAllowed("http://127.0.0.1:19387", "127.0.0.1:19387"), true);
+test("管理变更接收 JSON，拒绝表单和纯文本", () => {
+  input.requireJson("application/json");
   input.requireJson("application/json; charset=utf-8");
   for (const type of [undefined, "text/plain", "application/x-www-form-urlencoded"]) assert.throws(() => input.requireJson(type), /application\/json/);
 });

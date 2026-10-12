@@ -20,9 +20,6 @@ function query(params: URLSearchParams) {
     default: throw new Error("未知管理视图");
   }
 }
-function mutationAllowed(origin: string | undefined, host: string | undefined): boolean {
-  return !!origin && new URL(origin).host === host;
-}
 function requireJson(contentType: string | undefined): void {
   if (!contentType?.startsWith("application/json")) throw new Error("需要 application/json");
 }
@@ -38,4 +35,4 @@ async function body(chunks: AsyncIterable<Uint8Array | string>): Promise<Record<
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("管理请求必须为 JSON 对象");
   return value as Record<string, unknown>;
 }
-export const ManagementInput = Object.freeze({ required, query, mutationAllowed, requireJson, body });
+export const ManagementInput = Object.freeze({ required, query, requireJson, body });
