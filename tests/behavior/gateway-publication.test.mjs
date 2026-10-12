@@ -31,11 +31,31 @@ function setup(t, contract = loadContract()) {
   return { publication, tools, groups, events, calls, find };
 }
 
-test("全部697条HTTP契约生成合法工具，默认关闭、名称稳定且再次同步不重注册", async t => {
+test("697条HTTP契约合并同用途方法，工具按路径命名分组且再次同步不重注册", async t => {
   const { publication, tools, groups, events, find, calls } = setup(t);
   const data = state(); publication.sync(data);
-  assert.equal(tools.size, 697); assert.equal(groups.get("siyuan-http").defaultEnabled, false);
-  for (const name of tools.keys()) assert.match(name, /^[a-zA-Z0-9_]{1,64}$/);
+  assert.equal(tools.size, 663);
+  assert.equal(GatewayPublication.inventory(loadContract(), data).http, 663);
+  assert.equal(groups.get("siyuan-http:query").title, "思源 · query");
+  assert.equal(groups.get("siyuan-http:block").title, "思源 · block");
+  for (const spec of groups.values()) assert.equal(spec.defaultEnabled, false);
+  for (const name of tools.keys()) {
+    assert.match(name, /^[a-zA-Z0-9_-]{1,64}$/);
+    assert.doesNotMatch(name, /^siyuan_http_|_[0-9a-f]{12}$/);
+  }
+  assert.equal(find("POST /api/query/sql；").name, "siyuan_sql");
+  assert.equal(find("POST /api/block/getBlockInfo；").name, "siyuan_getBlockInfo");
+  assert.equal(find("POST /api/setting/setSnippet；").name, "siyuan_setting_setSnippet");
+  assert.equal(find("POST /api/snippet/setSnippet；").name, "siyuan_snippet_setSnippet");
+  assert.equal(find("POST /api/ai/agent/chat；").name, "siyuan_agent_chat");
+  assert.equal(find("POST /api/ai/editor/chat；").name, "siyuan_editor_chat");
+  assert.equal(find("POST /api/network/echo；").name, "siyuan_echo");
+  assert.equal(find("GET /api/network/echo；"), undefined);
+  assert.equal(find("GET /api/system/version；"), undefined);
+  assert.ok(find("POST /api/system/version；"));
+  assert.equal(find("GET /api/plugin/rpc；").name, "siyuan_getLoadedPluginRPC");
+  assert.equal(find("POST /api/plugin/rpc；").name, "siyuan_pluginJsonRpcHttp");
+  assert.equal(find("GET /es/network/proxy；").name, "siyuan_es_network_proxy");
   const before = events.length; publication.sync({ ...data, revision: 2 }); assert.equal(events.length, before);
   const sql = find("POST /api/query/sql；"); const exec = { callId: "source", agent: { session: { id: "session" } } };
   await sql.execute({ body: { stmt: "select 1" }, kernelId: "local" }, exec);
@@ -70,7 +90,9 @@ test("MCP完整schema跨核心独立，更新与删除撤回旧工具，旧持�
   const { publication, tools, groups, calls } = setup(t, new Contract({ siyuanVersion: "test", endpointCount: 0, endpoints: [], $defs: {} }));
   const data = state(); data.kernels.push({ ...data.kernels[0], id: "other", name: "另一个" });
   data.endpoints = [mcp("local"), mcp("other")]; publication.sync(data);
-  const [first, second] = [...tools.values()]; assert.notEqual(first.name, second.name);
+  const [first, second] = [...tools.values()];
+  assert.equal(first.name, "siyuan_mcp_local_same_name");
+  assert.equal(second.name, "siyuan_mcp_other_same_name");
   assert.deepEqual(first.parameters, data.endpoints[0].inputSchema);
   await first.execute({ text: "你好" }); await second.execute({ text: "世界" });
   assert.equal(calls[0][1].kernelId, "local"); assert.equal(calls[1][1].kernelId, "other");
@@ -108,7 +130,7 @@ test("注册失败撤回已发布成员；停止发布先撤工具后撤组，�
 test("管理界面显示全量注册、缺失schema与网关状态", () => {
   const { GatewayPanel } = createClientUI(React, {});
   const html = renderToStaticMarkup(React.createElement(GatewayPanel, { gateway: { available: true, requested: false,
-    http: 697, mcp: 12, registered: 0, missingSchemas: 2 }, busy: false }));
-  assert.match(html, /697 个 HTTP/); assert.match(html, /12 个 MCP/); assert.match(html, /注册全部 HTTP/);
+    http: 663, mcp: 12, registered: 0, missingSchemas: 2 }, busy: false }));
+  assert.match(html, /663 个 HTTP/); assert.match(html, /12 个 MCP/); assert.match(html, /注册全部 HTTP/);
   assert.match(html, /2 个旧 MCP/); assert.match(html, /新工具默认关闭/);
 });

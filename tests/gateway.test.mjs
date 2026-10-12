@@ -34,7 +34,7 @@ test("全量发布经真实协议运行，复用管理器的授权、目标和�
   const detach = manager.attachGateway(port);
   await manager.inspectConnection("local", true);
   assert.deepEqual(domain.table("config").get("state").endpoints[0].inputSchema, { type: "object", additionalProperties: true });
-  assert.equal((await manager.registerGateway(true)).registered, 698);
+  assert.equal((await manager.registerGateway(true)).registered, 664);
   const lookup = text => [...tools.values()].find(tool => tool.description.includes(text));
   const exec = { callId: "published-http", agent: { session: { id: "gateway-test" } } };
   const sql = lookup("POST /api/query/sql；");
@@ -62,7 +62,7 @@ test("全量发布经真实协议运行，复用管理器的授权、目标和�
   assert.deepEqual(JSON.parse(echoed.content[0].text), { text: "你好" });
   detach(); assert.equal(tools.size, 0); assert.equal(manager.gatewayState().requested, true);
   await assert.rejects(echo.execute({}), /撤回/);
-  manager.attachGateway(port); assert.equal(tools.size, 698);
-  await manager.removeKernel("local"); assert.equal(tools.size, 697);
+  manager.attachGateway(port); assert.equal(tools.size, 664);
+  await manager.removeKernel("local"); assert.equal(tools.size, 663);
   await manager.registerGateway(false); assert.equal(tools.size, 0);
 });

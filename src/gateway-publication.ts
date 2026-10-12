@@ -1,5 +1,4 @@
 /** 思源工具发布领域：契约生成、稳定身份和注册生命周期；宿主设施由端口注入。 */
-import { createHash } from "node:crypto";
 import Ajv from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
 import type { Contract, EndpointSpec } from "./contract.js";
@@ -34,16 +33,49 @@ function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("工具 schema 或参数必须为对象");
   return value as Record<string, unknown>;
 }
-function toolName(protocol: string, label: string, identity: string) {
-  // 截断可读部分后用身份摘要区分同名 handler、不同方法和不同核心，名称保持在64字符内。
-  const suffix = createHash("sha256").update(identity).digest("hex").slice(0, 12);
-  return `siyuan_${protocol}_${label.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 35)}_${suffix}`;
+function toolName(label: string) {
+  const name = `siyuan_${label.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+  if (name.length > 64) throw new Error(`思源工具名超过64字符：${name}`);
+  return name;
+}
+/** 同一路径与处理函数只发布一次；不同处理函数仍保留各自的请求定义。 */
+function httpCatalog(contract: Pick<Contract, "endpoints">) {
+  const selected = new Map<string, EndpointSpec>();
+  const priority = (method: string) => method === "POST" ? 0 : method === "GET" ? 1 : 2;
+  for (const spec of contract.endpoints) {
+    const key = `${spec.path}\n${spec.handler}`;
+    const previous = selected.get(key);
+    if (!previous || priority(spec.method) < priority(previous.method)) selected.set(key, spec);
+  }
+  const endpoints = [...selected.values()];
+  const pathCounts = new Map<string, number>();
+  for (const spec of endpoints) pathCounts.set(spec.path, (pathCounts.get(spec.path) ?? 0) + 1);
+  const entries = endpoints.map(spec => {
+    const parts = spec.path.split("/").filter(Boolean);
+    const leaf = parts.at(-1)!;
+    const parents = parts.slice(0, -1).filter(part => !/^[:*]/.test(part));
+    // 动态路径以及同路径的不同操作使用处理函数名；普通接口直接使用路径末段。
+    const label = /^[:*]/.test(leaf) || pathCounts.get(spec.path)! > 1 ? spec.handler : leaf;
+    return { spec, label, parents, depth: 0, category: parents.at(-1) ?? leaf };
+  });
+  const reserved = new Set(["siyuan_query", "siyuan_create", "siyuan_update", "siyuan_delete", "siyuan_rpc"]);
+  for (;;) {
+    const counts = new Map<string, number>();
+    for (const entry of entries) { const name = toolName(entry.label); counts.set(name, (counts.get(name) ?? 0) + 1); }
+    const conflicts = entries.filter(entry => reserved.has(toolName(entry.label)) || counts.get(toolName(entry.label))! > 1);
+    if (!conflicts.length) return entries.map(({ spec, label, category }) => ({ spec, name: toolName(label), category }));
+    // 只有重名项才逐级补上父路径，例如 setting_setSnippet 与 snippet_setSnippet。
+    for (const entry of conflicts) {
+      const parent = entry.parents[entry.parents.length - 1 - entry.depth++];
+      if (!parent) throw new Error(`思源端点无法按路径区分：${entry.spec.path}`);
+      entry.label = `${parent}_${entry.label}`;
+    }
+  }
 }
 function group(id: string, title: string): GroupSpec {
   return { id, title, origin: "dsh-plugin-siyuan", defaultEnabled: false };
 }
-function httpDefinition(contract: Contract, spec: EndpointSpec): Definition {
-  const name = toolName("http", `${spec.method}_${spec.handler}`, `${spec.method} ${spec.path}`);
+function httpDefinition(contract: Contract, { spec, name, category }: ReturnType<typeof httpCatalog>[number]): Definition {
   const request = record(contract.requestSchema(spec));
   // HTTP契约的引用统一指向根 $defs；把定义放在工具参数根，原指针保持有效。
   const { $defs, ...bodySchema } = request;
@@ -68,7 +100,7 @@ function httpDefinition(contract: Contract, spec: EndpointSpec): Definition {
     required.push("pathParams");
   }
   const blocked = EndpointPolicy.blockedHttp(spec.path);
-  return { name, group: group("siyuan-http", "思源 HTTP 端点"),
+  return { name, group: group(`siyuan-http:${category}`, `思源 · ${category}`),
     description: `思源 HTTP ${spec.method} ${spec.path}；${spec.handler}。${blocked ? `${blocked}。` : ""}执行遵循所选核心的端点授权。`,
     parameters: { type: "object", properties, required, additionalProperties: false, $defs },
     translate(args) {
@@ -111,11 +143,11 @@ export class GatewayPublication {
   #http: Definition[];
   #closed = false;
   constructor(contract: Contract, private invoke: Invoke, private port: PublicationPort) {
-    this.#http = contract.endpoints.map(spec => httpDefinition(contract, spec));
+    this.#http = httpCatalog(contract).map(entry => httpDefinition(contract, entry));
   }
   static inventory(contract: Contract, state: State) {
     const mcp = state.endpoints.filter(item => item.protocol === "mcp" && item.method === "tools/call" && item.discoveredFor);
-    return { http: contract.endpoints.length, mcp: mcp.filter(item => item.inputSchema).length,
+    return { http: httpCatalog(contract).length, mcp: mcp.filter(item => item.inputSchema).length,
       missingSchemas: mcp.filter(item => !item.inputSchema).length };
   }
   private definitions(state: State) {
@@ -125,7 +157,7 @@ export class GatewayPublication {
       const kernelId = item.discoveredFor;
       const kernel = state.kernels.find(kernel => kernel.id === kernelId);
       if (!kernel) throw new Error("MCP 工具的核心已不存在");
-      definitions.push({ name: toolName("mcp", item.detail, JSON.stringify([kernelId, item.detail])),
+      definitions.push({ name: toolName(`mcp_${kernelId}_${item.detail}`),
         group: group(`siyuan-mcp:${kernelId}`, `思源 MCP · ${kernel.name}`),
         description: `思源 MCP ${item.detail}（核心：${kernel.name}）。${item.description}`,
         parameters: item.inputSchema,
@@ -147,7 +179,7 @@ export class GatewayPublication {
         if (this.#tools.get(definition.name)?.signature === signature) return { definition, signature };
         const dialect = definition.parameters.$schema;
         const Validator = typeof dialect === "string" && dialect.includes("draft-07") ? Ajv : Ajv2020;
-        const validator = definition.group.id === "siyuan-http" ? httpValidator : new Validator({ strict: false, validateFormats: false });
+        const validator = definition.group.id.startsWith("siyuan-http:") ? httpValidator : new Validator({ strict: false, validateFormats: false });
         const validate = validator.compile(definition.parameters);
         const tool: PublishedTool = { name: definition.name, description: definition.description, parameters: definition.parameters,
           output: { schema: { type: "object", required: ["summary"], properties: { summary: string }, additionalProperties: false },
