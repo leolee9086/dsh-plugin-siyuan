@@ -1,7 +1,19 @@
 /** 逐端点声明。目录可扩展；目录发现与授予权限是两个独立动作。 */
 import type { ToolArgs } from "./tool.js";
 
-export type Decision = "deny" | "ask" | "allow";
+const decisions = ["deny", "ask", "ask-full-access", "allow"] as const;
+export type Decision = typeof decisions[number];
+const defaultDecision = "ask";
+/** 缺省端点每次询问，完全权限下拒绝；显式设置只作用于所属核心和端点。 */
+function decisionFor(grants: Grant[], kernelId: string, endpointKey: string): Decision {
+  return grants.find(g => g.kernelId === kernelId && g.endpointKey === endpointKey)?.decision ?? defaultDecision;
+}
+/** 两种询问策略在完全权限下分别决定，其他模式交给宿主审批。 */
+function approvalRoute(decision: Decision, mode: string | undefined) {
+  if (mode === undefined) return "unavailable";
+  if (mode !== "danger-full-access") return "request";
+  return decision === "ask-full-access" ? "full-access-allowed" : "full-access-denied";
+}
 export type Protocol = "http" | "mcp" | "plugin" | "ws" | "connection";
 export interface Endpoint {
   key: string; protocol: Protocol; method: string; path: string; detail: string;
@@ -62,7 +74,7 @@ async function identify(tool: string, args: ToolArgs,
   switch (args.channel) {
     case "contract": return [];
     case "connection": {
-      if (args.action !== "status") throw new Error("实例切换请在思源界面修改 PID，修改后重新授权");
+      if (args.action !== "status") throw new Error("实例切换请在思源连接管理界面修改 PID，修改后重新授权");
       return [endpoint("connection", "status")];
     }
     case "http": {
@@ -114,7 +126,7 @@ function filterEndpoints(items: Endpoint[], grants: Grant[], kernelId: string,
   filter: { query?: string; protocol?: string; method?: string; decision?: string; offset?: number; limit?: number }) {
   const decisions = new Map(grants.filter(g => g.kernelId === kernelId).map(g => [g.endpointKey, g.decision]));
   const words = (filter.query ?? "").toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  const matched = items.map(item => ({ ...item, decision: decisions.get(item.key) ?? "deny" })).filter(item => {
+  const matched = items.map(item => ({ ...item, decision: decisions.get(item.key) ?? defaultDecision })).filter(item => {
     const haystack = `${item.protocol} ${item.method} ${item.path} ${item.detail} ${item.description}`.toLocaleLowerCase();
     return (!filter.protocol || item.protocol === filter.protocol) && (!filter.method || item.method === filter.method)
       && (!filter.decision || item.decision === filter.decision) && words.every(word => haystack.includes(word));
@@ -125,16 +137,25 @@ function filterEndpoints(items: Endpoint[], grants: Grant[], kernelId: string,
 
 /** 逐项授权算法只认识端点和批准结果；审批设施由调用者参数化提供。 */
 async function authorize(items: Endpoint[], grants: Grant[], kernelId: string,
-  approve?: (item: Endpoint) => Promise<string>): Promise<void> {
+  approve?: (item: Endpoint, decision: Decision) => Promise<string>): Promise<void> {
   for (const item of items) {
-    const decision = grants.find(g => g.kernelId === kernelId && g.endpointKey === item.key)?.decision ?? "deny";
-    if (decision === "deny") throw new Error(`端点未授权：${item.protocol} ${item.method} ${item.path} ${item.detail}`);
-    if (decision === "ask") {
-      const outcome = approve ? await approve(item) : "unavailable";
-      if (outcome !== "allowed-once") throw new Error(`思源端点批准未获得：${outcome}`);
+    const decision = decisionFor(grants, kernelId, item.key);
+    if (decision === "deny") throw new Error(`端点已设为拒绝：${item.protocol} ${item.method} ${item.path} ${item.detail}`);
+    if (decision === "ask" || decision === "ask-full-access") {
+      const outcome = approve ? await approve(item, decision) : "unavailable";
+      if (outcome !== "allowed-once" && !(decision === "ask-full-access" && outcome === "full-access-allowed")) {
+        const messages: Record<string, string> = {
+          "full-access-denied": "此端点配置为每次询问、完全权限下拒绝；当前处于完全权限，已自动拒绝",
+          "policy-never": "宿主审批策略 never 自动拒绝了请求，不会弹出批准提示。请在 DSH 会话权限设置中选择允许询问的策略",
+          rejected: "宿主拒绝了批准请求（rejected）",
+          cancelled: "批准请求已取消（cancelled）",
+          unavailable: "宿主审批服务或答复渠道不可用（unavailable）",
+        };
+        throw new Error(`思源端点未获批准：${messages[outcome] ?? outcome}（${item.protocol} ${item.method} ${item.path} ${item.detail}）`);
+      }
     }
   }
 }
 
 /** 授权领域的唯一入口，内部识别和筛选实现不向外单独暴露。 */
-export const EndpointPolicy = Object.freeze({ endpoint, blockedHttp, cleanPath, identify, filterEndpoints, authorize });
+export const EndpointPolicy = Object.freeze({ decisions, defaultDecision, decisionFor, approvalRoute, endpoint, blockedHttp, cleanPath, identify, filterEndpoints, authorize });

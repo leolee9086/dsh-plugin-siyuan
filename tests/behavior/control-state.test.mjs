@@ -57,6 +57,27 @@ test("未绑定自动核心、停用核心与过期配置在行为规则中拒�
   assert.throws(() => rules.requireRevision(1, 1, true, "已卸载"), /已卸载/);
 });
 
+test("首次绑定唯一实例撤去未绑定授权，多实例与空目录保留原配置", () => {
+  const value = state(); value.kernels[0].apiUrl = "auto";
+  value.grants = [grant(discovered("local", "echo"))];
+  for (const instances of [[], [{ pid: 10 }, { pid: 20 }]]) {
+    const before = structuredClone(value);
+    assert.throws(() => rules.bindDiscovered(value, "local", instances), /思源/);
+    assert.deepEqual(value, before);
+  }
+  rules.bindDiscovered(value, "local", [{ pid: 10 }]);
+  assert.equal(value.kernels[0].kernelPid, 10); assert.deepEqual(value.grants, []);
+  value.grants = [grant(discovered("local", "echo"))];
+  rules.bindDiscovered(value, "local", [{ pid: 20 }]);
+  assert.equal(value.kernels[0].kernelPid, 10); assert.equal(value.grants.length, 1);
+});
+
+test("端点策略持久化保留两种询问以及已有的拒绝与允许", () => {
+  const value = state();
+  value.grants = ["ask", "ask-full-access", "deny", "allow"].map((decision, index) => ({ kernelId: "local", endpointKey: `endpoint-${index}`, decision }));
+  assert.deepEqual(rules.DOMAIN_SPEC.tables.config.valueSchema.parse(value).grants, value.grants);
+});
+
 test("损坏配置拒绝解析，不替换成默认授权", () => {
   const schema = rules.DOMAIN_SPEC.tables.config.valueSchema;
   const good = state(); assert.deepEqual(schema.parse(good), good); assert.notEqual(schema.parse(good), good);

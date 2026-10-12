@@ -2,25 +2,34 @@
 
 思源笔记的 DSH 插件：多核心连接配置、逐端点授权、左侧思源入口和右侧会话活动记录，保留恰好五个模型工具。
 
-**0.2.1** 修复桌面端保存端点授权及连接配置时的 403：管理路由采用宿主统一鉴权，支持桌面应用转发的已认证请求。
+**0.2.2** 默认每次询问、完全权限下拒绝，另提供完全权限下授权的询问配置；自动检查核心连接并完成首次实例绑定；活动栏区分端点直接通过、宿主策略拒绝及其他审批结果，提供连接管理入口与工具调用定位；多块写入结果说明内核返回 ID 的范围。
 
 ## 连接与凭据
 
 插件加载后，从插件市场附近的思源图标进入主面板。核心连接页支持添加、编辑、停用和删除核心，设置默认核心，检查连接。右侧「思源活动」页可以为当前会话选择核心。调用时的目标顺序为工具参数 `kernelId`、会话选择、明确配置的默认核心；找不到目标或目标失效时拒绝，不挑另一核心。
 
-每个核心可以配置本机 `auto` 或明确的 HTTP(S) 地址、超时、可选端口登记文件与 PID。远程地址支持代理路径前缀，禁止 URL 凭据、查询和片段。自动模式读取思源维护的账户主目录 `.config/siyuan/port.json`，不扫描端口。先在界面「检查连接」：只有一个有效实例时绑定并保存 PID；多实例需要人工填写 PID。模型调用不会自动绑定新实例，已绑定实例退出后不会切到另一实例。更换地址、PID 或登记文件会撤销该核心的旧授权。
+每个核心可以配置本机 `auto` 或明确的 HTTP(S) 地址、超时、可选端口登记文件与 PID。远程地址支持代理路径前缀，禁止 URL 凭据、查询和片段。自动模式读取思源维护的账户主目录 `.config/siyuan/port.json`，不扫描端口。进入思源连接管理界面、首次工具调用或首次授权时自动检查并绑定唯一实例的 PID；多实例需要人工填写 PID。已绑定实例退出后需要在管理界面重新选择。首次绑定会清除旧版未绑定配置的授权；更换地址、PID 或登记文件也会撤销该核心的旧授权，新的授权在绑定后保存。
 
 API token 只由人工在密码框写入 DSH 的本机 `credentials` 服务，持久配置与活动记录不保存 token 值。凭据的存储与保护由 DSH 负责；本插件负责人工只写、宿主取用及模型输出过滤，不另建凭据存储层。编辑时只显示已配置状态，不回填原值；留空保留，填写新值替换，也可明确清除。工具参数不接受 token 或认证头，宿主向固定核心注入 `Authorization: Token ...`，不转发到重定向地址。
 
 所有核心的已配置凭据共用输出过滤：CRUD、HTTP、插件 RPC、MCP、WS、管理返回和错误都经过安全投影，覆盖原值、JSON 字符串、URL 编码、base64/hex 及含凭据的整体编码响应。敏感配置字段被遮罩；MCP 图片和音频字节只保留说明。错误不转发原始异常对象、stack、cause 或请求配置。过滤作用于本插件的返回接口；本机文件访问和浏览器权限由宿主管理。
 
-DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务。管理路由通过 `connection.requestRejection` 统一校验来源和身份，兼容 Web 与桌面端；变更请求使用 JSON。持久化或凭据服务不可用时失败关闭，不降级为允许。旧组合里的非空 `token` 在首次初始化时导入 credentials；应由人工清除旧组合中的明文配置，不要将其内容发送到会话。
+DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务；两种询问策略使用 `sandboxPolicy` 读取会话模式，并在普通权限下使用 `approval` 请求批准。管理路由通过 `connection.requestRejection` 统一校验来源和身份，兼容 Web 与桌面端；变更请求使用 JSON。持久化或凭据服务不可用时失败关闭，不降级为允许。旧组合里的非空 `token` 在首次初始化时导入 credentials；应由人工清除旧组合中的明文配置，不要将其内容发送到会话。
 
 ## 端点授权
 
 端点页提供 697 条来自思源 v3.8.6 的 HTTP 契约，支持按核心、协议、方法、授权状态筛选，搜索路径、方法、工具名和说明，并分页。MCP 工具通过人工点击「发现 MCP 工具」获取，仅进入该核心目录，不获得权限。扩展 HTTP、插件 RPC、MCP 方法和 WS 操作可人工声明入目录。
 
-每个端点单独选择「未授权」「每次批准」或「允许」，并确认具体核心与具体端点。默认全部未授权；发现、声明和新增方法都不会继承权限。「每次批准」通过 DSH 审批服务请求一次性批准，无会话、无审批服务、被拒绝或取消都不执行。批准期间配置改变则停止派发。
+每个端点可单独设置以下四种权限，并确认具体核心与端点：
+
+| 配置 | 普通权限下 | 完全权限下 |
+| --- | --- | --- |
+| 每次询问，完全权限下拒绝（默认，`ask`） | 请求宿主批准 | 自动拒绝 |
+| 每次询问，完全权限下授权（`ask-full-access`） | 请求宿主批准 | 自动通过 |
+| 拒绝（`deny`） | 拒绝 | 拒绝 |
+| 允许（`allow`） | 直接通过 | 直接通过 |
+
+未配置、首次发现、重新绑定或声明的新端点默认使用 `ask`。升级保留已经显式保存的 `deny`、`ask` 和 `allow`。完全权限按宿主 `sandboxPolicy` 返回的实际会话模式判断；询问通过 `approval.request()` 请求一次性批准。无会话、无法取得模式或需要询问但审批不可用时停止执行；宿主 `never` 策略自动拒绝询问。批准期间配置改变也会停止派发。活动栏记录选定的端点配置，并区分完全权限自动拒绝、完全权限自动通过、直接允许、宿主批准、拒绝、取消和审批不可用。
 
 授权键分别为：
 
@@ -36,7 +45,7 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务。管理路�
 
 ## 会话记录
 
-右侧「思源活动」显示当前会话的实际调用：时间、核心、具体端点、callId、operationId、解析出的文档或块 ID、耗时与结果。可过滤当前页、分页和刷新，核心选择与记录由宿主持久化。
+右侧「思源活动」显示当前会话的实际调用：时间、核心、具体端点、callId、operationId、解析出的文档或块 ID、耗时与结果。可过滤当前页、分页和刷新，核心选择与记录由宿主持久化。点击「思源连接管理界面」打开管理面板；「定位工具调用」滚动到聊天中已显示的思源工具卡片并展开参数和结果。历史尚未加载、过程组折叠或当前不是聊天视图时，会提示先加载或展开目标。
 
 操作意图先持久化，再派发业务请求；不保存笔记正文或凭据。成功、失败、拒绝、已发送与结果不确定分别显示。通知和 WS 发送完成不等于内容效果已确认；网络中断后的写入不自动重发。已执行但结算记录失败时，工具结果明确提示勿重复写入。重载打断的运行记录标为结果不确定。
 
@@ -64,7 +73,7 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务。管理路�
 {"action":"rename_doc","id":"20261011180001-abcdefg","title":"新标题"}
 ```
 
-创建文档返回 `docId`，插块、追加和更新返回 `blockIds`。内容空白保留，更新接受空字符串。插块至少需要 `nextID`、`previousID` 或 `parentID`；追加需要 `parentID`。CRUD 检查 HTTP 与内核 `{code,msg,data}` 信封，索引或同步可能稍后更新，不因查询暂时无结果重发写入。
+创建文档返回 `docId`，插块、追加和更新返回 `blockIds`，并以 `blockIdScope: "transaction-operations"` 标明这些是内核事务操作 ID。一段 Markdown 可生成多个块而只返回一个操作 ID；ID 数量不是写入块数。写入成功与否依据内核响应。内容空白保留，更新接受空字符串。插块至少需要 `nextID`、`previousID` 或 `parentID`；追加需要 `parentID`。CRUD 检查 HTTP 与内核 `{code,msg,data}` 信封，索引或同步可能稍后更新，不因查询暂时无结果重发写入。
 
 ```json
 {"channel":"contract","path":"/api/block/","limit":20,"includeSchema":true}
@@ -76,7 +85,7 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务。管理路�
 {"channel":"connection","action":"status"}
 ```
 
-HTTP 支持 JSON、text、base64、form、multipart 请求与文件上传，保留状态、响应头和信封，默认响应上限16MiB。`validate` 仅校验已知契约；未收录路径需先声明并授权。MCP 使用官方 SDK 1.32.1，协议上限2025-11-25。每个调用结束后释放临时 WS、RPC、MCP 连接。
+HTTP 支持 JSON、text、base64、form、multipart 请求与文件上传，保留状态、响应头和信封，默认响应上限16MiB。`validate` 仅校验已知契约；未收录路径按具体方法与路径请求批准，也可在管理界面声明后设置权限。MCP 使用官方 SDK 1.32.1，协议上限2025-11-25。每个调用结束后释放临时 WS、RPC、MCP 连接。
 
 ## 公共服务与独立连接库
 
@@ -87,7 +96,7 @@ export const inject = ["siyuan"];
 export async function apply(ctx) {
   const service = ctx.get("siyuan");
   const result = await service.invoke("siyuan_query", { action: "notebooks", kernelId: "local" });
-  // 公共服务调用也需要端点授权；无 agent 时「每次批准」拒绝执行。
+  // 公共服务调用也需要端点授权；无 agent 时两种询问策略均拒绝执行。
 }
 ```
 
@@ -110,7 +119,7 @@ export async function apply(ctx) {
 在 DSH 插件市场中使用以下 GitHub 来源安装或升级：
 
 ```text
-https://github.com/leolee9086/dsh-plugin-siyuan#v0.2.1
+https://github.com/leolee9086/dsh-plugin-siyuan#v0.2.2
 ```
 
 客户端通过 `./client` 和 `dsh.client` 声明加载。构建将官方思源 SVG 嵌入客户端，与宿主 JS、类型声明、契约一起放入 `lib/`。
@@ -121,7 +130,7 @@ pnpm run check
 node scripts/gen-contract.mjs /path/to/siyuan/kernel/apicontract/schema.json 3.8.6
 ```
 
-`test:behavior` 运行 22 项独立行为测试，`test:protocol` 运行 25 项协议与工具行为测试；后者使用隔离 HTTP/WS/MCP 夹具。详细范围见 [测试说明](./tests/README.md)。`release:pack` 执行检查并生成安装包；开发代码见 [main 分支](https://github.com/leolee9086/dsh-plugin-siyuan/tree/main)。
+`test:behavior` 运行 26 项独立行为测试，`test:protocol` 运行 25 项协议与工具行为测试；后者使用隔离 HTTP/WS/MCP 夹具。详细范围见 [测试说明](./tests/README.md)。`release:pack` 执行检查并生成安装包；开发代码见 [main 分支](https://github.com/leolee9086/dsh-plugin-siyuan/tree/main)。
 
 ## 许可证与来源
 

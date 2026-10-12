@@ -131,10 +131,10 @@ export class KernelDiscovery {
     if (this.selectedPid !== undefined) {
       const selected = instances.find(item => item.pid === this.selectedPid);
       if (selected) return selected.apiUrl;
-      throw new DiscoveryError(`选择的思源 PID ${this.selectedPid} 已不可用；用 siyuan_rpc connection/status 与 connection/select 重新选择`, instances);
+      throw new DiscoveryError(`选择的思源 PID ${this.selectedPid} 已不可用；请在思源连接管理界面重新选择 PID`, instances);
     }
     if (instances.length === 1) return instances[0]!.apiUrl;
     if (instances.length === 0) throw new DiscoveryError(`端口文件 ${this.portFile} 中没有可连接的思源实例，请确认思源已启动`);
-    throw new DiscoveryError(`发现多个思源实例：${instances.map(item => `PID ${item.pid} ${item.apiUrl}`).join("；")}。请用 siyuan_rpc connection/select 指定 pid，或配置 kernelPid/apiUrl`, instances);
+    throw new DiscoveryError(`发现多个思源实例：${instances.map(item => `PID ${item.pid} ${item.apiUrl}`).join("；")}。请在思源连接管理界面指定 PID，或配置 kernelPid/apiUrl`, instances);
   }
 }

@@ -25,7 +25,12 @@ test("四个 CRUD 工具完成文档/块创建、查询、更新、删除，内�
   assert.equal(server.data.document.markdown, markdown);
   await call("siyuan_create", { action: "block", parentID: docId, data: "  block\n" });
   assert.equal(server.data.block.data, "  block\n");
-  await call("siyuan_create", { action: "append", parentID: docId, data: "append" });
+  const beforeAppend = server.requests.length;
+  const appended = await call("siyuan_create", { action: "append", parentID: docId, data: "## 修复记录\n\n连接管理\n\n审批反馈" });
+  assert.deepEqual(appended.blockIds, [blockId]);
+  assert.equal(appended.blockIdScope, "transaction-operations");
+  assert.match(appended.note, /不代表全部生成块清单/);
+  assert.equal(server.requests.length, beforeAppend + 1);
   await call("siyuan_update", { action: "block", id: blockId, data: "\n  changed\n", lockType: true });
   assert.equal((await call("siyuan_query", { action: "read", id: blockId })).kramdown, "\n  changed\n");
   await call("siyuan_update", { action: "block", id: blockId, data: "" });

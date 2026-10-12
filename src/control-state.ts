@@ -13,6 +13,7 @@ export interface State {
 export interface Activity {
   id: string; sessionId: string; callId: string; time: string; tool: string; kernelId: string; kernelName: string;
   target?: string; endpoints: Endpoint[]; resources: string[]; status: string; elapsedMs?: number; error?: string;
+  authorization?: { endpointKey: string; decision: string; outcome: string }[];
 }
 const isRecord = (v: any) => v !== null && typeof v === "object" && !Array.isArray(v);
 const validEndpoint = (v: any) => isRecord(v) && ["http", "mcp", "plugin", "ws", "connection"].includes(v.protocol)
@@ -33,7 +34,7 @@ function validState(v: any): boolean {
   return (v.defaultKernelId === null || ids.has(v.defaultKernelId))
     && Object.values(v.sessions).every(id => typeof id === "string" && ids.has(id))
     && v.grants.every((g: any) => isRecord(g) && ids.has(g.kernelId) && typeof g.endpointKey === "string"
-      && ["deny", "ask", "allow"].includes(g.decision))
+      && EndpointPolicy.decisions.includes(g.decision))
     && v.endpoints.every((e: any) => validEndpoint(e) && (!e.discoveredFor || ids.has(e.discoveredFor)));
 }
 const jsonSchema = (check: (value: any) => boolean) => ({ parse(value: any) {
@@ -48,6 +49,9 @@ const DOMAIN_SPEC = {
       && ["id", "sessionId", "callId", "time", "tool", "kernelId", "kernelName"].every(k => typeof v[k] === "string")
       && Number.isFinite(Date.parse(v.time)) && Array.isArray(v.endpoints) && v.endpoints.every(validEndpoint)
       && Array.isArray(v.resources) && v.resources.every((id: any) => typeof id === "string")
+      && (v.authorization === undefined || Array.isArray(v.authorization) && v.authorization.every((entry: unknown) =>
+        entry !== null && typeof entry === "object" && "endpointKey" in entry && typeof entry.endpointKey === "string"
+        && "decision" in entry && typeof entry.decision === "string" && "outcome" in entry && typeof entry.outcome === "string"))
       && ["checking", "awaiting-approval", "running", "succeeded", "failed", "partial", "denied", "uncertain", "sent"].includes(v.status)) },
   },
 };
@@ -78,9 +82,20 @@ function selectKernel(state: State, explicit: unknown, sessionId?: string): Kern
   if (!kernel) throw new Error("所选思源核心不存在");
   return kernel;
 }
+/** 首次发现只接受唯一实例；已绑定配置和重新指定地址的撤权由各自入口处理。 */
+function bindDiscovered(state: State, kernelId: string, instances: { pid: number }[]) {
+  const kernel = selectKernel(state, kernelId);
+  if (kernel.apiUrl !== "auto" || kernel.kernelPid) return;
+  if (instances.length !== 1) throw new Error(instances.length
+    ? "发现多个思源实例，请在思源连接管理界面选择明确的 PID"
+    : "未发现有效的思源实例，请启动思源后重试");
+  kernel.kernelPid = instances[0]!.pid;
+  // 旧版未绑定配置的授权没有确定目标，首次绑定后也需针对该实例授权。
+  revokeBinding(state, kernelId);
+}
 function requireBoundKernel(kernel: Kernel): void {
   if (!kernel.enabled) throw new Error("思源核心已停用");
-  if (kernel.apiUrl === "auto" && !kernel.kernelPid) throw new Error("请先在思源界面检查连接以绑定 PID；核心退出后不会自动换库");
+  if (kernel.apiUrl === "auto" && !kernel.kernelPid) throw new Error("自动连接尚未绑定 PID，请在思源连接管理界面检查实例选择");
 }
 function requireRevision(expected: number, current: number, closed: boolean, message: string): void {
   if (closed || expected !== current) throw new Error(message);
@@ -88,4 +103,4 @@ function requireRevision(expected: number, current: number, closed: boolean, mes
 
 /** 状态领域唯一入口；宿主适配器和行为测试均通过此入口使用数据规则。 */
 export const ControlState = Object.freeze({ DOMAIN_SPEC, revokeBinding, replaceDiscovered, recoverActivity,
-  targetId, selectKernel, requireBoundKernel, requireRevision });
+  targetId, selectKernel, bindDiscovered, requireBoundKernel, requireRevision });

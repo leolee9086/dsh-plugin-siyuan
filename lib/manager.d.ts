@@ -12,7 +12,7 @@ declare const filterEndpoints: (items: Endpoint[], grants: import("./policy.js")
     offset: number;
     limit: number;
     items: {
-        decision: Decision;
+        decision: "deny" | "ask" | "ask-full-access" | "allow";
         key: string;
         protocol: import("./policy.js").Protocol;
         method: string;
@@ -84,7 +84,7 @@ export declare class KernelManager {
     private approve?;
     defineTool(name: string, validate: (args: unknown) => boolean): void;
     readonly contract: import("./contract.js").Contract;
-    constructor(domain: Domain, credentials: Credentials, run: Runner, approve?: ((exec: Execution, reason: string) => Promise<string>) | undefined);
+    constructor(domain: Domain, credentials: Credentials, run: Runner, approve?: ((exec: Execution, reason: string, decision: Decision) => Promise<string>) | undefined);
     initialize(rawConfig: unknown): Promise<void>;
     private refreshSecrets;
     private kernel;
@@ -115,7 +115,7 @@ export declare class KernelManager {
         offset: number;
         limit: number;
         items: {
-            decision: Decision;
+            decision: "deny" | "ask" | "ask-full-access" | "allow";
             key: string;
             protocol: import("./policy.js").Protocol;
             method: string;
@@ -134,6 +134,8 @@ export declare class KernelManager {
     select(kernelId: string | null, sessionId?: string): Promise<void>;
     declare(input: Record<string, unknown>): Promise<Endpoint>;
     grant(kernelId: string, endpointKey: string, decision: Decision): Promise<void>;
+    /** 首次使用串行绑定唯一实例；并发检查共用落盘后的 PID，后续不会换到另一实例。 */
+    private bindConnection;
     inspectConnection(kernelId: string, discoverMcp?: boolean): Promise<any>;
     /** 宿主工具和公共服务消费者均走这个方法，外部拿不到带 token 的原始连接。 */
     invoke(name: string, input: ToolArgs, exec?: Execution): Promise<{
