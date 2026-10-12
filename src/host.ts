@@ -2,10 +2,12 @@
 import { callKernel } from "./api.js";
 import { SiYuanConnection } from "./connection.js";
 import { rpcTool } from "./rpc-tool.js";
+import { KernelManager, managedTools, DOMAIN_SPEC } from "./manager.js";
+import { createRoute, ROUTE } from "./route.js";
 import { toolDef, requiredText as text, requiredId as id, optionalText, contentType, type ToolArgs } from "./tool.js";
 
 export const name = "dsh-plugin-siyuan";
-export const inject = ["tools"];
+export const inject = ["tools", "storageDomain", "credentials"];
 export const SERVICE = "siyuan";
 
 const string = { type: "string" };
@@ -98,14 +100,33 @@ export function createTools(connection: SiYuanConnection) {
   ];
 }
 
-export function apply(ctx: any, rawConfig: unknown) {
+export async function apply(ctx: any, rawConfig: unknown) {
   if (ctx.get(SERVICE) !== undefined) throw new Error("siyuan 服务已存在");
-  const connection = new SiYuanConnection(rawConfig);
-  ctx.provide(SERVICE, connection);
-  ctx.effect(() => () => {
-    void connection.dispose().catch(error => ctx.logger?.warn?.("思源连接清理失败", error));
-  }, `${name}: connections`);
-  for (const tool of createTools(connection)) {
-    ctx.effect(() => ctx.get("tools").register(tool), `${name}: ${tool.name}`);
-  }
+  const domain = await ctx.get("storageDomain").open(DOMAIN_SPEC);
+  const manager = new KernelManager(domain, ctx.get("credentials"), async (connection, toolName, args, exec) => {
+    const tool = createTools(connection).find(item => item.name === toolName);
+    if (!tool) throw new Error("未知思源工具");
+    return tool.execute(args, exec);
+  }, async (exec, reason) => {
+    const approval = ctx.get("approval");
+    if (!approval || !exec.agent) return "unavailable";
+    return approval.request({ agent: exec.agent, toolName: exec.name ?? "siyuan_rpc", callId: exec.callId,
+      reason, displayReason: reason, signal: exec.signal });
+  });
+  try { await manager.initialize(rawConfig); }
+  catch { await domain.close(); throw new Error("思源配置或凭据初始化失败，请检查本机设置"); }
+  // 注册公共服务时只投影受控操作，不发布 config、HTTP、SDK client 或裸 socket。
+  ctx.provide(SERVICE, Object.freeze({ invoke: manager.invoke.bind(manager) }));
+  ctx.effect(() => () => manager.close(), `${name}: manager`);
+  const template = new SiYuanConnection({});
+  try {
+    for (const tool of managedTools(manager, createTools(template))) {
+      ctx.effect(() => ctx.get("tools").register(tool), `${name}: ${tool.name}`);
+    }
+  } finally { await template.dispose(); }
+  // 与 gateway 同样延迟挂载界面路由，headless 模式不依赖 webServer。
+  ctx.inject(["webServer", "connection"], (scope: any) => {
+    scope.effect(() => scope.get("webServer").register({ kind: "exact", path: ROUTE,
+      handler: createRoute(scope, manager) }), `${name}: management`);
+  });
 }

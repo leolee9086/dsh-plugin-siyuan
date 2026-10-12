@@ -37,4 +37,4 @@ export declare function createTools(connection: SiYuanConnection): {
         summary: string;
     }>;
 }[];
-export declare function apply(ctx: any, rawConfig: unknown): void;
+export declare function apply(ctx: any, rawConfig: unknown): Promise<void>;

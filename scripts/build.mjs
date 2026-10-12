@@ -1,6 +1,7 @@
 /** 先在固定 staging 目录构建并验证，成功后才替换发布目录。 */
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, renameSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { Script } from "node:vm";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -20,6 +21,14 @@ if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status ?? 1);
 mkdirSync(path.join(staging, "generated"), { recursive: true });
 cpSync(path.join(root, "src/generated/contract.json"), path.join(staging, "generated/contract.json"));
+const icon = readFileSync(path.join(root, "assets/icon.svg"));
+const { createClientUI } = await import(new URL("../src/client-ui.js", import.meta.url));
+cpSync(path.join(root, "src/client-ui.js"), path.join(staging, "client-ui.js"));
+const client = readFileSync(path.join(root, "src/client.js"), "utf8")
+  .replace("__SIYUAN_ICON__", `data:image/svg+xml;base64,${icon.toString("base64")}`)
+  .replace("__SIYUAN_UI_FACTORY__", () => `(${createClientUI.toString()})`);
+new Script(client, { filename: "client.js" });
+writeFileSync(path.join(staging, "client.js"), client, "utf8");
 const { SiYuanConnection } = await import(new URL("../.build-lib/connection.js", import.meta.url));
 const { createTools } = await import(new URL("../.build-lib/host.js", import.meta.url));
 const connection = new SiYuanConnection({});
@@ -29,4 +38,4 @@ try {
 } finally { await connection.dispose(); }
 rmSync(output, { recursive: true, force: true });
 renameSync(staging, output);
-console.log("Built lib: five tools, 697 contracts, declarations included.");
+console.log("Built lib: five tools, 697 contracts, managed host, client and declarations included.");

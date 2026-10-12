@@ -6,5 +6,4 @@
       name: dsh-plugin-siyuan
       config:
         apiUrl: auto
-        token: ""
         timeoutMs: 15000

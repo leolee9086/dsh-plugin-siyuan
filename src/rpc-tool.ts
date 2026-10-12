@@ -96,7 +96,7 @@ async function readResponse(response: Response, args: ToolArgs): Promise<unknown
       const { value, done } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > maxBytes) throw new Error(`响应超过 maxBytes=${maxBytes}，可提高上限或通过 siyuan 服务读取流`);
+      if (size > maxBytes) throw new Error(`响应超过 maxBytes=${maxBytes}，可提高 maxBytes 上限`);
       chunks.push(value);
     }
   } catch (error) { await reader?.cancel(); throw error; }

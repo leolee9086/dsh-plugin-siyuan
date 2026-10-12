@@ -1,0 +1,17 @@
+dsh-plugin-siyuan
+Copyright (c) 2026 leolee9086
+License: AGPL-3.0-or-later; see LICENSE.
+
+SiYuan endpoint contract
+Source: SiYuan v3.8.6, kernel/apicontract/schema.json
+https://github.com/siyuan-note/siyuan/tree/v3.8.6
+Copyright belongs to the SiYuan authors and contributors.
+Converted by scripts/gen-contract.mjs into src/generated/contract.json.
+Upstream licensing statement: kernel/main.go, GNU AGPL version 3 or any later version.
+
+SiYuan application icon
+Source: app/stage/icon.svg in the SiYuan project checkout.
+https://github.com/siyuan-note/siyuan/blob/v3.8.6/app/stage/icon.svg
+Copyright belongs to the SiYuan authors and contributors.
+Copied without modifying SVG content into assets/icon.svg; embedded as a data URI in lib/client.js.
+Use of the project icon identifies the connected application and does not imply endorsement.
