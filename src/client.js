@@ -40,36 +40,55 @@ window.__ModuleLoader__.load({
     }
     function apply(ctx) {
       installStyle(ctx);
-      const callTargets = new Map();
-      const callKey = (sessionId, callId) => JSON.stringify([sessionId, callId]);
-      ctx.effect(() => () => callTargets.clear(), "siyuan: call targets");
-      for (const tool of ["siyuan_query", "siyuan_create", "siyuan_update", "siyuan_delete", "siyuan_rpc"]) {
-        ctx.slots.inject("tool.call.toolview", () => ctx.slots.register({ name: "tool.call.toolview", key: tool,
-          inject: sessionId => ({ bindCall: (callId, reveal) => {
-            const key = callKey(sessionId, callId); callTargets.set(key, reveal);
-            return () => { if (callTargets.get(key) === reveal) callTargets.delete(key); };
-          } }) }, ToolCall));
-      }
       ctx.slots.inject("main", () => ctx.slots.register({ name: "main", key: "siyuan-control" }, Main));
       ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({ name: "sidebar.panellist", id: "siyuan-control", order: 31, label: () => "思源连接管理界面" }, Icon));
-      ctx.inject(["sidebarRightTabs", "sidebarRight", "layout"], scope => {
+      ctx.inject(["sidebarRightTabs", "sidebarRight", "layout", "sessions"], scope => {
         const kind = "siyuan:activity";
+        const { createRevealer } = (__SIYUAN_NAVIGATION_FACTORY__)();
+        const states = new Map(); let disposed = false;
+        const sessions = scope.get("sessions"), sidebar = scope.get("sidebarRight"), layout = scope.get("layout");
+        function openActivity(sessionId) {
+          if (disposed || !sessionId || sidebar.mounted.getSnapshot() !== sessionId) throw new Error("请先打开对应会话，再查看思源活动");
+          sidebar.openTab(kind);
+          if (!sidebar.isExpanded()) layout.openRightbar(false, false);
+        }
+        function injected(sessionId) {
+          const binding = sessions.binding(sessionId);
+          if (!binding) throw new Error("思源活动无法取得当前会话");
+          let state = states.get(binding);
+          if (!state) {
+            const revealer = createRevealer({ sessionId, getWindow: () => binding.eventSource.getSnapshot(),
+              loadThrough: seq => binding.session.loadThrough(seq), showChat: () => layout.selectPanel(null),
+              isCurrent: () => !disposed && sessions.binding(sessionId) === binding && sidebar.mounted.getSnapshot() === sessionId });
+            const stopMounted = sidebar.mounted.subscribe(() => {
+              if (sidebar.mounted.getSnapshot() !== sessionId) revealer.cancel();
+            });
+            let released = false;
+            const release = () => {
+              if (released) return; released = true;
+              stopMounted(); revealer.dispose(); states.delete(binding);
+            };
+            state = { revealer, stop: binding.ctx.effect(() => release, "siyuan: navigation lifetime") };
+            states.set(binding, state);
+          }
+          return { openActivity: () => openActivity(sessionId), openManagement: () => layout.selectPanel("siyuan-control"),
+            revealCall: callId => state.revealer.reveal(callId) };
+        }
+        scope.effect(() => () => {
+          disposed = true;
+          for (const state of [...states.values()]) state.stop();
+        }, "siyuan: navigation cleanup");
+        for (const tool of ["siyuan_query", "siyuan_create", "siyuan_update", "siyuan_delete", "siyuan_rpc"]) {
+          scope.slots.inject("tool.call.toolview", () => scope.slots.register({ name: "tool.call.toolview", key: tool, inject: injected }, ToolCall));
+        }
         scope.effect(() => scope.get("sidebarRightTabs").register({ id: kind, kind, title: () => "思源活动" }), "siyuan: activity type");
-        scope.slots.inject("sidebar.right.pane.tab", () => scope.slots.register({ name: "sidebar.right.pane.tab", key: kind,
-          inject: sessionId => ({ openManagement: () => scope.get("layout").selectPanel("siyuan-control"),
-            revealCall: async callId => {
-              scope.get("layout").selectPanel(null);
-              // 面板切换后等待 React 提交，再使用卡片自身注册的定位回调。
-              await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-              if (!callTargets.get(callKey(sessionId, callId))?.()) throw new Error("此调用尚未显示。请打开聊天视图，加载对应历史并展开调用所在的过程组，再点击定位。");
-            } }) }, Activity));
+        scope.slots.inject("sidebar.right.pane.tab", () => scope.slots.register({ name: "sidebar.right.pane.tab", key: kind, inject: injected }, Activity));
         scope.slots.inject("sidebar.right.pane.tab.title", () => scope.slots.register({ name: "sidebar.right.pane.tab.title", key: kind }, () => h("span", null, "思源活动")));
         function Opener({ wide }) {
           const [error, setError] = React.useState("");
           return h(React.Fragment, null, h("button", { type: "button", onClick: () => {
             try {
-              scope.get("sidebarRight").openTab(kind);
-              if (!scope.get("sidebarRight").isExpanded()) scope.get("layout").openRightbar(false, false);
+              openActivity(sidebar.mounted.getSnapshot());
               setError("");
             } catch { setError("请先打开一个会话，再查看思源活动"); }
           }, title: "本会话的思源活动", "aria-label": "思源活动", style: { display: "flex", alignItems: "center", gap: 6,

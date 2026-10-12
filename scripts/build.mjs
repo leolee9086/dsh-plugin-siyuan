@@ -23,10 +23,13 @@ mkdirSync(path.join(staging, "generated"), { recursive: true });
 cpSync(path.join(root, "src/generated/contract.json"), path.join(staging, "generated/contract.json"));
 const icon = readFileSync(path.join(root, "assets/icon.svg"));
 const { createClientUI } = await import(new URL("../src/client-ui.js", import.meta.url));
+const { createActivityNavigation } = await import(new URL("../src/client-navigation.js", import.meta.url));
 cpSync(path.join(root, "src/client-ui.js"), path.join(staging, "client-ui.js"));
+cpSync(path.join(root, "src/client-navigation.js"), path.join(staging, "client-navigation.js"));
 const client = readFileSync(path.join(root, "src/client.js"), "utf8")
   .replace("__SIYUAN_ICON__", `data:image/svg+xml;base64,${icon.toString("base64")}`)
-  .replace("__SIYUAN_UI_FACTORY__", () => `(${createClientUI.toString()})`);
+  .replace("__SIYUAN_UI_FACTORY__", () => `(${createClientUI.toString()})`)
+  .replace("__SIYUAN_NAVIGATION_FACTORY__", () => `(${createActivityNavigation.toString()})`);
 new Script(client, { filename: "client.js" });
 writeFileSync(path.join(staging, "client.js"), client, "utf8");
 const { SiYuanConnection } = await import(new URL("../.build-lib/connection.js", import.meta.url));
