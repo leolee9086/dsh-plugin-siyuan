@@ -17,6 +17,8 @@ function setup(t, contract = loadContract()) {
   const tools = new Map(), groups = new Map(), events = [], calls = [];
   const publication = new GatewayPublication(contract, async (...args) => { calls.push(args); return { summary: "ok" }; }, {
     registerGroup(spec) {
+      // 与工具箱公开组ID约束一致，发布过程中就拒绝不兼容的声明。
+      assert.match(spec.id, /^[a-z0-9][a-z0-9:_-]*$/i);
       assert.equal(groups.has(spec.id), false); groups.set(spec.id, spec); events.push(["group", spec]);
       return { add(name) { events.push(["add", name]); }, remove(name) { events.push(["remove", name]); },
         dispose() { events.push(["disposeGroup", spec.id]); groups.delete(spec.id); } };
@@ -38,6 +40,7 @@ test("697条HTTP契约合并同用途方法，工具按路径命名分组且再�
   assert.equal(GatewayPublication.inventory(loadContract(), data).http, 663);
   assert.equal(groups.get("siyuan-http:query").title, "思源 · query");
   assert.equal(groups.get("siyuan-http:block").title, "思源 · block");
+  assert.equal(groups.get("siyuan-http:_2e_well-known").title, "思源 · .well-known");
   for (const spec of groups.values()) assert.equal(spec.defaultEnabled, false);
   for (const name of tools.keys()) {
     assert.match(name, /^[a-zA-Z0-9_-]{1,64}$/);
