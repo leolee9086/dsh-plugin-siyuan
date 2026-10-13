@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-siyuan",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "思源连接管理与 DSH 工具箱协同：五个基础工具、697条 HTTP 契约、MCP 工具发现与逐端点授权",
   "author": "leolee9086",
   "repository": {
@@ -76,6 +76,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "ajv": "^8.20.0",
     "json-rpc-2.0": "^1.8.1",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "yaml": "^2.9.1"
   }
 }

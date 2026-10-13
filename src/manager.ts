@@ -1,9 +1,10 @@
-/** 宿主共享的核心管理器。持久配置不含凭据值，对消费者只开放受控 invoke。 */
+/** 宿主共享的核心管理器。公共服务开放受控 invoke，提醒来源使用内部专用读取。 */
 import { randomUUID } from "node:crypto";
 import Ajv from "ajv";
 import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { SiYuanConnection } from "./connection.js";
-import { normalizeConfig, KernelError } from "./api.js";
+import { ReminderPushHub, type ReminderWatch } from "./push.js";
+import { normalizeConfig, KernelError, callKernel } from "./api.js";
 import { loadContract } from "./contract.js";
 import { SecretFilter } from "./secrets.js";
 import { EndpointPolicy, type Endpoint, type Decision } from "./policy.js";
@@ -41,6 +42,36 @@ export class KernelManager {
   #secrets = new SecretFilter();
   #connections = new Set<SiYuanConnection>();
   #closed = false;
+  #push = new ReminderPushHub({
+    kernels: () => this.reminderKernels(),
+    error: error => this.#secrets.error(error).message,
+    open: async (kernelId, signal, receive) => {
+      await this.#writeChain;
+      signal.throwIfAborted();
+      const kernel = await this.bindConnection(kernelId, signal);
+      const revision = this.#state.revision;
+      const connection = await this.connect(kernel, signal);
+      try {
+        requireRevision(revision, this.#state.revision, this.#closed, "推送连接期间配置已变化");
+        signal.throwIfAborted();
+        const socket = await connection.ws.open(`/ws?app=dsh-reminders-${randomUUID()}&id=${randomUUID()}&type=main`, {
+          signal, onMessage: (data, binary) => {
+            if (binary) return;
+            let value: unknown;
+            try { value = JSON.parse(data.toString("utf8")); } catch { return; }
+            receive(value);
+          },
+        });
+        // close 可能在 await open 恢复前发生，先监听再检查状态。
+        const ended = new Promise<void>(resolve => {
+          socket.once("close", () => resolve());
+          if (socket.readyState !== socket.OPEN) resolve();
+        });
+        return { ended, dispose: () => this.release(connection) };
+      } catch (error) { await this.release(connection); throw error; }
+    },
+  });
+  watchReminders: ReminderWatch = listener => this.#push.watch(listener);
   #publication?: GatewayPublication;
   #publicationError = "";
   /** 可选网关出现/消失时仅挂载/释放扩展工具，五个基础工具始终独立可用。 */
@@ -118,6 +149,7 @@ export class KernelManager {
     state.revision = this.#state.revision + 1;
     await this.#config.put("state", state); this.#state = state;
     this.syncGateway();
+    this.#push.reset();
   }
   private async connect(kernel: Kernel, signal?: AbortSignal): Promise<SiYuanConnection> {
     if (this.#closed) throw new Error("思源管理器已卸载");
@@ -144,9 +176,50 @@ export class KernelManager {
       ...(blockedHttp(spec.path) ? { blocked: blockedHttp(spec.path) } : {}) }));
     const common = [endpoint("mcp", "tools/list"), endpoint("mcp", "tools/call"), endpoint("mcp", "resources/list"),
       endpoint("mcp", "resources/read"), endpoint("mcp", "prompts/list"), endpoint("mcp", "prompts/get"),
-      endpoint("connection", "status")];
+      endpoint("connection", "status"), endpoint("ws", "connect", "/ws", "", "连接内核推送通道"),
+      endpoint("http", "POST", "/api/sqlite/flushTransaction", "", "等待事务和索引队列完成")];
     const extended = this.#state.endpoints.filter(item => !item.discoveredFor || item.discoveredFor === kernelId);
     return [...new Map([...staticItems, ...common, ...extended].map(item => [item.key, item])).values()];
+  }
+  /** Discover rules from existing enabled connections; no separate rule-root configuration. */
+  reminderKernels() {
+    return this.#closed ? [] : this.#state.kernels.filter(kernel => kernel.enabled).map(kernel => kernel.id);
+  }
+  /** 插件内部固定读取提醒块；与模型工具的端点审批分开，也不发布到公共服务。 */
+  async readReminderBlocks(kernelId: string, roots: string[] | undefined, signal: AbortSignal) {
+    let connection: SiYuanConnection | undefined;
+    try {
+      await this.#writeChain;
+      signal.throwIfAborted();
+      await this.refreshSecrets();
+      const kernel = await this.bindConnection(kernelId, signal);
+      const revision = this.#state.revision;
+      const current = async () => {
+        await this.#writeChain;
+        signal.throwIfAborted();
+        requireRevision(revision, this.#state.revision, this.#closed, "提醒读取期间配置已变化");
+      };
+      // 这里只接受文档 ID，SQL 和端点由插件固定，调用方不能提交任意查询。
+      if (roots?.some(id => !/^\d{14}-[a-z0-9]{7}$/.test(id))) throw new Error("提醒文档 ID 无效");
+      const filter = roots === undefined ? "" : " AND root_id IN (" + roots.map(id => "'" + id + "'").join(",") + ")";
+      connection = await this.connect(kernel, signal);
+      await current();
+      await callKernel(connection, "/api/sqlite/flushTransaction", {}, signal);
+      await current();
+      // LIMIT -1 避开思源 SQL 的隐式行数上限，每批先等事务和索引队列完成。
+      const blocks = await callKernel(connection, "/api/query/sql", {
+        stmt: "SELECT id,root_id,type,subtype,markdown FROM blocks WHERE type='callout' AND subtype='DSH-REMINDER'" + filter + " ORDER BY id LIMIT -1",
+      }, signal);
+      await current();
+      if (!Array.isArray(blocks)) throw new Error("思源规则查询应返回块数组");
+      return this.#secrets.value(blocks);
+    } catch (error) { throw this.#secrets.error(error); }
+    finally { if (connection) await this.release(connection); }
+  }
+  /** Rule sources follow the same session/core selection as ordinary tools. */
+  acceptsReminder(kernelId: string, sessionId: string) {
+    return !this.#closed && this.#state.kernels.some(kernel => kernel.id === kernelId && kernel.enabled)
+      && ControlState.targetId(this.#state, undefined, sessionId) === kernelId;
   }
   async publicState() {
     return { revision: this.#state.revision, defaultKernelId: this.#state.defaultKernelId, gateway: this.gatewayState(),
@@ -392,6 +465,7 @@ export class KernelManager {
   async close() {
     this.#closed = true; this.#publication?.dispose(); this.#publication = undefined;
     await this.#writeChain;
+    await this.#push.close();
     await Promise.allSettled([...this.#connections].map(connection => this.release(connection)));
     await this.domain.close();
   }

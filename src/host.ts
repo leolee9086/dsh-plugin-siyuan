@@ -5,6 +5,7 @@ import { rpcTool } from "./rpc-tool.js";
 import { KernelManager, managedTools, DOMAIN_SPEC, type GatewayHost } from "./manager.js";
 import { createRoute, ROUTE } from "./route.js";
 import { EndpointPolicy } from "./policy.js";
+import { ReminderSources, type RulesHost } from "./rules.js";
 import { toolDef, requiredText as text, requiredId as id, optionalText, contentType, type ToolArgs } from "./tool.js";
 
 export const name = "dsh-plugin-siyuan";
@@ -109,6 +110,7 @@ export function createTools(connection: SiYuanConnection) {
 
 export async function apply(ctx: any, rawConfig: unknown) {
   if (ctx.get(SERVICE) !== undefined) throw new Error("siyuan 服务已存在");
+  const reminderOptions = ReminderSources.options(rawConfig);
   const domain = await ctx.get("storageDomain").open(DOMAIN_SPEC);
   const manager = new KernelManager(domain, ctx.get("credentials"), async (connection, toolName, args, exec) => {
     const tool = createTools(connection).find(item => item.name === toolName);
@@ -139,6 +141,15 @@ export async function apply(ctx: any, rawConfig: unknown) {
       ctx.effect(() => ctx.get("tools").register(tool), `${name}: ${tool.name}`);
     }
   } finally { await template.dispose(); }
+  ctx.inject(["reminderRules"], (scope: RulesHost) => {
+    scope.effect(() => {
+      const sources = ReminderSources.attach(scope.get("reminderRules"), reminderOptions,
+        manager.readReminderBlocks.bind(manager), message => ctx.logger.warn(message),
+        () => manager.reminderKernels(), (kernelId, sessionId) => manager.acceptsReminder(kernelId, sessionId),
+        manager.watchReminders);
+      return () => sources.dispose();
+    }, `${name}: reminder sources`);
+  });
   // 子作用域等待可选网关；网关卸载时同时撤回扩展工具，重新挂载时按保存的选择恢复。
   ctx.inject(["toolGateway"], (scope: GatewayHost) => {
     scope.effect(() => manager.attachGateway({

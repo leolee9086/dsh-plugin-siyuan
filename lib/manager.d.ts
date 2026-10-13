@@ -1,4 +1,5 @@
 import { SiYuanConnection } from "./connection.js";
+import { type ReminderWatch } from "./push.js";
 import { type Endpoint, type Decision } from "./policy.js";
 declare const filterEndpoints: (items: Endpoint[], grants: import("./policy.js").Grant[], kernelId: string, filter: {
     query?: string;
@@ -85,6 +86,7 @@ export declare class KernelManager {
     private credentials;
     private run;
     private approve?;
+    watchReminders: ReminderWatch;
     /** 可选网关出现/消失时仅挂载/释放扩展工具，五个基础工具始终独立可用。 */
     attachGateway(port: PublicationPort): () => void;
     private syncGateway;
@@ -117,6 +119,12 @@ export declare class KernelManager {
     private connect;
     private release;
     private catalog;
+    /** Discover rules from existing enabled connections; no separate rule-root configuration. */
+    reminderKernels(): string[];
+    /** 插件内部固定读取提醒块；与模型工具的端点审批分开，也不发布到公共服务。 */
+    readReminderBlocks(kernelId: string, roots: string[] | undefined, signal: AbortSignal): Promise<any>;
+    /** Rule sources follow the same session/core selection as ordinary tools. */
+    acceptsReminder(kernelId: string, sessionId: string): boolean;
     publicState(): Promise<{
         revision: number;
         defaultKernelId: string | null;
