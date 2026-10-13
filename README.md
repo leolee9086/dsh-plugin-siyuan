@@ -2,6 +2,8 @@
 
 思源笔记的 DSH 插件：检索笔记、创建与修改内容，多核心连接配置、逐端点授权和会话活动记录。提供五个基础工具，并可将 697 条 HTTP 契约按用途整理为 663 个工具，与发现的 MCP 工具一起注册到工具箱，按会话选择开启。
 
+**0.3.3** 常规 HTTP 扩展工具收到标准 `{code,msg,data}` JSON 响应时，成功直接返回 `data`，失败返回 `isError`、HTTP `status`、内核 `code`、`msg` 和 `data`。文件、代理、SSE、直接 JSON 等特殊接口保持各自的原始响应；通用 `siyuan_rpc` 继续提供完整 HTTP 结果。
+
 **0.3.2** 修复 `.well-known` 等路径分组的 ID 含非法字符而导致整批注册失败的问题，分组标题保留原始路径名称。HTTP 工具按路径末段命名，例如 `siyuan_sql`、`siyuan_getBlockInfo`；父路径用于分组，只有重名时才进入工具名。同路径、同处理函数的多种方法合并，优先 POST；不同用途的处理函数分别保留。工具名移除摘要 ID 与 HTTP 方法前缀。升级后需在工具箱重新开启新名字及分组，已有思源端点授权保持不变。
 
 ## 连接与凭据
@@ -144,7 +146,7 @@ export async function apply(ctx) {
 在 DSH 插件市场中使用以下 GitHub 来源安装或升级：
 
 ```text
-https://github.com/leolee9086/dsh-plugin-siyuan#v0.3.2
+https://github.com/leolee9086/dsh-plugin-siyuan#v0.3.3
 ```
 
 客户端通过 `./client` 和 `dsh.client` 声明加载。构建将官方思源 SVG 嵌入客户端，与宿主 JS、类型声明、契约一起放入 `lib/`。
@@ -155,7 +157,7 @@ pnpm run check
 node scripts/gen-contract.mjs /path/to/siyuan/kernel/apicontract/schema.json 3.8.6
 ```
 
-`test:behavior` 运行 42 项独立行为测试，`test:protocol` 运行 26 项协议与工具行为测试；后者使用隔离 HTTP/WS/MCP 夹具，覆盖扩展工具从注册、授权到实际调用和活动记录的完整链路。详细范围见 [测试说明](./tests/README.md)。`release:pack` 执行检查并生成安装包；开发代码见 [main 分支](https://github.com/leolee9086/dsh-plugin-siyuan/tree/main)。
+`test:behavior` 运行 43 项独立行为测试，`test:protocol` 运行 26 项协议与工具行为测试；后者使用隔离 HTTP/WS/MCP 夹具，覆盖扩展工具从注册、授权到实际调用和活动记录的完整链路。详细范围见 [测试说明](./tests/README.md)。`release:pack` 执行检查并生成安装包；开发代码见 [main 分支](https://github.com/leolee9086/dsh-plugin-siyuan/tree/main)。
 
 ## 许可证与来源
 

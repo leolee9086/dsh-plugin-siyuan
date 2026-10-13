@@ -23,7 +23,8 @@ export interface GatewayHost {
   effect(effect: () => () => void, label: string): unknown;
 }
 interface Definition { name: string; description: string; parameters: Record<string, unknown>; group: GroupSpec;
-  translate(args: ToolArgs): ToolArgs }
+  translate(args: ToolArgs): ToolArgs;
+  project?(result: Awaited<ReturnType<Invoke>>): Awaited<ReturnType<Invoke>> }
 export interface PublishedTool {
   name: string; description: string; parameters: Record<string, unknown>;
   output: { schema: object; render(args: unknown, result: { summary: string }): { type: string; text: string }[] };
@@ -75,6 +76,21 @@ function httpCatalog(contract: Pick<Contract, "endpoints">) {
 function group(id: string, title: string): GroupSpec {
   return { id, title, origin: "dsh-plugin-siyuan", defaultEnabled: false };
 }
+/** 受控调用已完成授权、脱敏与活动结算，这里只精简常规工具给模型看的标准信封。 */
+function standardHttpResult(result: Awaited<ReturnType<Invoke>>) {
+  let response: unknown;
+  try { response = JSON.parse(result.summary); } catch { return result; }
+  if (!response || typeof response !== "object" || !("status" in response) || typeof response.status !== "number"
+    || !("encoding" in response) || response.encoding !== "json" || !("body" in response)) return result;
+  const body = response.body;
+  if (!body || typeof body !== "object" || Array.isArray(body)
+    || !("code" in body) || typeof body.code !== "number" || !("msg" in body) || typeof body.msg !== "string"
+    || !("data" in body)) return result;
+  // 非2xx即使内核code为0也保留失败；null、false、0和空字符串都是有效data。
+  const value = response.status >= 200 && response.status < 300 && body.code === 0 ? body.data
+    : { isError: true, status: response.status, code: body.code, msg: body.msg, data: body.data };
+  return { summary: JSON.stringify(value, null, 2) };
+}
 function httpDefinition(contract: Contract, { spec, name, category }: ReturnType<typeof httpCatalog>[number]): Definition {
   const request = record(contract.requestSchema(spec));
   // HTTP契约的引用统一指向根 $defs；把定义放在工具参数根，原指针保持有效。
@@ -106,6 +122,8 @@ function httpDefinition(contract: Contract, { spec, name, category }: ReturnType
   return { name, group: group(`siyuan-http:${categoryId}`, `思源 · ${category}`),
     description: `思源 HTTP ${spec.method} ${spec.path}；${spec.handler}。${blocked ? `${blocked}。` : ""}执行遵循所选核心的端点授权。`,
     parameters: { type: "object", properties, required, additionalProperties: false, $defs },
+    // 文件、代理、直接JSON等有各自的返回约定；只给常规端点配标准信封投影。
+    project: spec.output === null ? standardHttpResult : undefined,
     translate(args) {
       const pathParams = args.pathParams === undefined ? {} : record(args.pathParams);
       let path = spec.path.replace(/[:*]([A-Za-z0-9_]+)/g, (_, key: string) => String(pathParams[key]));
@@ -191,7 +209,8 @@ export class GatewayPublication {
             if (this.#closed || this.#tools.get(tool.name)?.tool !== tool) throw new Error("此思源工具已撤回，请重新查询工具目录");
             if (!validate(args)) throw new Error(`${tool.name} 参数不符合端点 schema`);
             exec?.signal?.throwIfAborted();
-            return this.invoke("siyuan_rpc", definition.translate(args), { ...exec, name: tool.name });
+            const result = await this.invoke("siyuan_rpc", definition.translate(args), { ...exec, name: tool.name });
+            return definition.project ? definition.project(result) : result;
           } };
         return { definition, signature, tool };
       });

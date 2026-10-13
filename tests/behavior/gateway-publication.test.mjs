@@ -12,10 +12,10 @@ const state = () => ({ revision: 1, kernels: [{ id: "local", name: "本机", api
   defaultKernelId: "local", grants: [], endpoints: [], sessions: {}, gatewayTools: true });
 const mcp = (kernelId, inputSchema = { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }) => ({
   ...EndpointPolicy.endpoint("mcp", "tools/call", "", "same.name", "写入文本"), discoveredFor: kernelId, inputSchema });
-function setup(t, contract = loadContract()) {
+function setup(t, contract = loadContract(), reply = async () => ({ summary: "ok" })) {
   // 只记录领域端口的注册/撤回效果，不模拟 Harness ctx、工具执行器或网关开关算法。
   const tools = new Map(), groups = new Map(), events = [], calls = [];
-  const publication = new GatewayPublication(contract, async (...args) => { calls.push(args); return { summary: "ok" }; }, {
+  const publication = new GatewayPublication(contract, async (...args) => { calls.push(args); return reply(...args); }, {
     registerGroup(spec) {
       // 与工具箱公开组ID约束一致，发布过程中就拒绝不兼容的声明。
       assert.match(spec.id, /^[a-z0-9][a-z0-9:_-]*$/i);
@@ -87,6 +87,45 @@ test("HTTP映射保留路径参数、查询、二进制及表单文件，受控�
   assert.deepEqual(calls.at(-1)[1].files, files); assert.equal(calls.at(-1)[1].bodyType, "multipart");
   await assert.rejects(find("/api/file/putFile；").execute({ body: { file: "wrong" }, files }), /不一致/);
   await find("/api/notebook/lsNotebooks；").execute({}); assert.equal(calls.at(-1)[1].body, undefined);
+});
+
+test("常规HTTP成功只返回data，失败保留状态；特殊响应与结算警告保留原样", async t => {
+  const full = loadContract();
+  const paths = ["/api/block/getBlockKramdown", "/api/file/getFile", "/api/plugin/rpc"];
+  const contract = new Contract({ siyuanVersion: full.version, endpointCount: 0, $defs: {}, endpoints: [] });
+  contract.endpoints.push(...full.endpoints.filter(spec => paths.includes(spec.path)));
+  contract.requestSchema = spec => full.requestSchema(spec);
+  let reply;
+  const { publication, find, tools } = setup(t, contract, async () => reply);
+  const data = state(); data.endpoints = [mcp("local")]; publication.sync(data);
+  const read = find("POST /api/block/getBlockKramdown；");
+  const args = { body: { id: "20261011180002-abcdefg" } };
+  const response = (body, status = 200, encoding = "json") => ({ status, statusText: "fixture", encoding,
+    headers: { "content-type": "application/json" }, size: 100, body });
+  const set = value => { reply = { summary: JSON.stringify(value) }; };
+  for (const value of [{ id: args.body.id, kramdown: "正文" }, [1, 2], null, false, 0, "", "文字"]) {
+    set(response({ code: 0, msg: "", data: value }));
+    const result = await read.execute(args);
+    assert.deepEqual(JSON.parse(result.summary), value);
+    assert.deepEqual(read.output.render(args, result), [{ type: "text", text: result.summary }]);
+  }
+  for (const [status, code] of [[200, -1], [403, -1], [503, 0]]) {
+    set(response({ code, msg: "请求失败", data: { reason: "详情" } }, status));
+    assert.deepEqual(JSON.parse((await read.execute(args)).summary), {
+      isError: true, status, code, msg: "请求失败", data: { reason: "详情" },
+    });
+  }
+  // 非标准JSON、显式文本/二进制、记录失败警告都保留原响应，不猜测data含义。
+  for (const value of [response({ result: "直接JSON" }), response({ code: 0, msg: "无data" }),
+    response("不可用", 503, "text"), response("AA==", 200, "base64"),
+    { result: response({ code: 0, msg: "", data: null }), operationId: "operation-1", recordStatus: "结算记录失败，勿重复写入" }]) {
+    set(value); assert.deepEqual(await read.execute(args), reply);
+  }
+  reply = { summary: "调用结果文本" }; assert.deepEqual(await read.execute(args), reply);
+  set(response({ code: 0, msg: "", data: { nested: true } }));
+  assert.deepEqual(await find("POST /api/file/getFile；").execute({ body: { path: "/data/test.json" } }), reply);
+  assert.deepEqual(await find("POST /api/plugin/rpc；").execute({ body: { jsonrpc: "2.0", method: "echo" } }), reply);
+  assert.deepEqual(await tools.get("siyuan_mcp_local_same_name").execute({ text: "测试" }), reply);
 });
 
 test("MCP完整schema跨核心独立，更新与删除撤回旧工具，旧持久数据要求重新发现", async t => {

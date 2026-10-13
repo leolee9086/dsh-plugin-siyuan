@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { KernelManager, managedTools } from "../lib/manager.js";
 import { SiYuanConnection } from "../lib/connection.js";
 import { createTools } from "../lib/host.js";
-import { fixture } from "./fixture.mjs";
+import { fixture, docId } from "./fixture.mjs";
 
 // 隔离领域存储端口，仅保存本测试产生的配置和活动，不装配或模拟宿主上下文。
 function memoryDomain() {
@@ -43,7 +43,7 @@ test("全量发布经真实协议运行，复用管理器的授权、目标和�
   assert.equal(server.requests.length, before);
   const sqlEndpoint = manager.endpoints("local", { query: "/api/query/sql" }).items[0];
   await manager.grant("local", sqlEndpoint.key, "allow");
-  assert.equal(JSON.parse((await sql.execute({ body: { stmt: "select 1" } }, exec)).summary).body.code, 0);
+  assert.deepEqual(JSON.parse((await sql.execute({ body: { stmt: "select 1" } }, exec)).summary), [{ id: docId }]);
   const record = manager.activities("gateway-test").items.find(item => item.status === "succeeded");
   assert.equal(record.callId, exec.callId); assert.equal(record.tool, sql.name); assert.equal(record.kernelId, "local");
   assert.equal(record.authorization[0].outcome, "endpoint-allowed");
