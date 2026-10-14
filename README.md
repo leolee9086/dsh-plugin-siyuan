@@ -47,6 +47,8 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务；两种询�
 
 ## 思源 callout 规则提醒
 
+详细步骤见 [规则编写教程](./docs/规则编写教程.md)：从创建原生 callout、编写触发条件，到正则与路径、优先级与互斥、去重、插件扩展和排错。
+
 思源可向公共 `reminderRules` 服务贡献规则。当前由 context-care 的已有 `/requests` Host 行提供服务；思源通过可选注入连接，两个插件没有直接包依赖。没有该服务时，思源工具继续独立工作。
 
 使用专属 callout 标记 `[!DSH-REMINDER]`，内部放一个 `dsh-rule` 代码块，其余正文就是提醒内容。标记归属公共提醒服务，其他插件的规则使用各自标记；单独出现 `dsh-rule` 不会注册为提醒。下面的声明在成功读取 `.ts` 或 `.d.ts` 后，于下一次自然模型请求前提醒：
