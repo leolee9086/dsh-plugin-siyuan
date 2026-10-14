@@ -47,7 +47,7 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务；两种询�
 
 ## 思源 callout 规则提醒
 
-详细步骤见 [规则编写教程](./docs/规则编写教程.md)：从创建原生 callout、编写触发条件，到正则与路径、优先级与互斥、去重、插件扩展和排错。
+详细步骤见 [规则编写教程](./docs/规则编写教程.md)：从创建原生 callout、编写触发条件，到正则与路径、优先级与互斥、去重、插件扩展和排错。`reminder/v2` 支持自然请求前的本机时间窗口与近期真人输入条件，完整晚间提醒示例见[第 11 节](./docs/规则编写教程.md#11-自然请求与晚间休息提醒)；需配合支持 v2 的 context-care 提醒服务。
 
 思源可向公共 `reminderRules` 服务贡献规则。当前由 context-care 的已有 `/requests` Host 行提供服务；思源通过可选注入连接，两个插件没有直接包依赖。没有该服务时，思源工具继续独立工作。
 
@@ -191,7 +191,7 @@ export async function apply(ctx) {
 在 DSH 插件市场中使用以下 GitHub 来源安装或升级：
 
 ```text
-https://github.com/leolee9086/dsh-plugin-siyuan#v0.3.3
+https://github.com/leolee9086/dsh-plugin-siyuan#v0.5.0
 ```
 
 客户端通过 `./client` 和 `dsh.client` 声明加载。构建将官方思源 SVG 嵌入客户端，与宿主 JS、类型声明、契约一起放入 `lib/`。

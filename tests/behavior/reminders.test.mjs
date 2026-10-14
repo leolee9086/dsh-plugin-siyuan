@@ -23,6 +23,16 @@ test('owned callouts report missing declarations and duplicate YAML keys', () =>
   assert.throws(() => ReminderSources.options({ reminders: { roots: [] } }), /未知/);
 });
 
+test('request reminders retain v2 time windows and human-presence declarations', () => {
+  const declaration = { format: 'reminder/v2', id: 'night', on: 'request.before',
+    when: { timeWindow: { start: '23:00', end: '06:00', timeZone: 'local' }, humanActivity: { withinSeconds: 300 } },
+    deliver: { model: { once: 'window' } } };
+  const markdown = `[!DSH-REMINDER] 晚间休息\n\n\`\`\`dsh-rule\n${JSON.stringify(declaration)}\n\`\`\`\n没有紧急任务时温和建议伙伴早点休息。`;
+  const parsed = ReminderSources.parseCallout({ ...block, markdown });
+  assert.deepEqual(parsed, { ...declaration, id: `${id}:night`, title: '晚间休息', text: '没有紧急任务时温和建议伙伴早点休息。' });
+  assert.throws(() => ReminderSources.parseCallout({ ...block, markdown: markdown.replace('reminder/v2', 'reminder/v3') }), /format/);
+});
+
 // These are source facilities, not a fabricated Host context. SQL is exercised separately against SiYuan.
 function fixture(initial, options = {}) {
   const registered = new Map(), policies = new Map(), errors = [], calls = [];

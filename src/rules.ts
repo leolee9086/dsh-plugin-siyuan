@@ -47,7 +47,7 @@ function parseCallout(value: unknown) {
   const document = parseDocument(lines.slice(start + 1, end).join('\n'), { uniqueKeys: true, version: '1.2' });
   if (document.errors.length) throw new Error(document.errors.map(error => error.message).join('; '));
   const declaration = object(document.toJS({ maxAliasCount: 0 }));
-  if (declaration.format !== 'reminder/v1') throw new Error('format 必须为 reminder/v1');
+  if (declaration.format !== 'reminder/v1' && declaration.format !== 'reminder/v2') throw new Error('format 必须为 reminder/v1 或 reminder/v2');
   const localId = declaration.id ?? 'reminder';
   if (typeof localId !== 'string' || !localId || localId.length > 128) throw new Error('规则 id 应为1—128字符');
   const text = [...lines.slice(1, start), ...lines.slice(end + 1)]
