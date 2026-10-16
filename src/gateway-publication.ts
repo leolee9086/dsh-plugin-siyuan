@@ -4,7 +4,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import type { Contract, EndpointSpec } from "./contract.js";
 import type { State } from "./control-state.js";
 import type { Execution } from "./manager.js";
-import type { ToolArgs } from "./tool.js";
+import { summaryOutput, type toolDef, type ToolArgs } from "./tool.js";
 import { EndpointPolicy } from "./policy.js";
 
 const string = { type: "string" };
@@ -17,19 +17,10 @@ export interface GatewayPort {
   registerGroup(spec: GroupSpec): { add(name: string): void; remove(name: string): void; dispose(): void };
 }
 export interface PublicationPort extends GatewayPort { registerTool(tool: PublishedTool): () => void }
-export interface GatewayHost {
-  get(name: "toolGateway"): GatewayPort;
-  get(name: "tools"): { register(tool: PublishedTool): () => void };
-  effect(effect: () => () => void, label: string): unknown;
-}
 interface Definition { name: string; description: string; parameters: Record<string, unknown>; group: GroupSpec;
   translate(args: ToolArgs): ToolArgs;
   project?(result: Awaited<ReturnType<Invoke>>): Awaited<ReturnType<Invoke>> }
-export interface PublishedTool {
-  name: string; description: string; parameters: Record<string, unknown>;
-  output: { schema: object; render(args: unknown, result: { summary: string }): { type: string; text: string }[] };
-  execute(args: ToolArgs, exec?: Execution): Promise<{ summary: string }>;
-}
+export type PublishedTool = Omit<ReturnType<typeof toolDef>, "presentCall">;
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("工具 schema 或参数必须为对象");
   return value as Record<string, unknown>;
@@ -201,10 +192,9 @@ export class GatewayPublication {
         const dialect = definition.parameters.$schema;
         const Validator = typeof dialect === "string" && dialect.includes("draft-07") ? Ajv : Ajv2020;
         const validator = definition.group.id.startsWith("siyuan-http:") ? httpValidator : new Validator({ strict: false, validateFormats: false });
-        const validate = validator.compile(definition.parameters);
+        const validate = validator.compile<ToolArgs>(definition.parameters);
         const tool: PublishedTool = { name: definition.name, description: definition.description, parameters: definition.parameters,
-          output: { schema: { type: "object", required: ["summary"], properties: { summary: string }, additionalProperties: false },
-            render: (_args, result) => [{ type: "text", text: result.summary }] },
+          output: summaryOutput,
           execute: async (args, exec) => {
             if (this.#closed || this.#tools.get(tool.name)?.tool !== tool) throw new Error("此思源工具已撤回，请重新查询工具目录");
             if (!validate(args)) throw new Error(`${tool.name} 参数不符合端点 schema`);

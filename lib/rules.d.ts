@@ -1,29 +1,6 @@
+import type { ReminderService } from 'dsh-context-care/reminders';
 import type { ReminderWatch } from './push.js';
-interface RuleSource {
-    sourceId: string;
-    plugin: string;
-    sessionId?: string;
-    revision: number;
-    rules: Record<string, unknown>[];
-    diagnostics: {
-        id: string;
-        message: string;
-    }[];
-}
-interface SourceHandle {
-    replace(source: RuleSource): void;
-    dispose(): void | Promise<void>;
-}
-interface RuleService {
-    registerSource(source: RuleSource, options?: {
-        acceptSession(sessionId: string): boolean;
-    }): SourceHandle;
-    validateRule(rule: Record<string, unknown>): unknown;
-}
-export interface RulesHost {
-    get(name: 'reminderRules'): RuleService;
-    effect(setup: () => (() => void | Promise<void>), label?: string): unknown;
-}
+type RuleService = Pick<ReminderService, 'registerSource' | 'validateRule'>;
 interface Options {
     refreshMs: number;
 }

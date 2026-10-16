@@ -11,7 +11,7 @@ export const notebookId = "20261011180000-abcdefg";
 export const docId = "20261011180001-abcdefg";
 export const blockId = "20261011180002-abcdefg";
 
-export async function fixture({ version = "3.8.6", beforeVersion, beforeFlush } = {}) {
+export async function fixture({ version = "3.8.6", beforeVersion, beforeFlush, keepAliveTimeout = 5000 } = {}) {
   const requests = [];
   const data = { document: undefined, block: undefined, deleted: [], notifications: [], mcpDeleted: 0, reminderBlocks: undefined, flushResult: undefined };
   const transports = new Map();
@@ -98,6 +98,7 @@ export async function fixture({ version = "3.8.6", beforeVersion, beforeFlush } 
       }
     } catch (error) { response.writeHead(500); response.end(error.stack); }
   });
+  server.keepAliveTimeout = keepAliveTimeout;
   server.on("upgrade", (request, socket, head) => ws.handleUpgrade(request, socket, head, client => ws.emit("connection", client, request)));
   server.on("connect", (_request, socket, head) => {
     if (_request.url === "/connect-body") {

@@ -30,7 +30,23 @@ test('request reminders retain v2 time windows and human-presence declarations',
   const markdown = `[!DSH-REMINDER] 晚间休息\n\n\`\`\`dsh-rule\n${JSON.stringify(declaration)}\n\`\`\`\n没有紧急任务时温和建议伙伴早点休息。`;
   const parsed = ReminderSources.parseCallout({ ...block, markdown });
   assert.deepEqual(parsed, { ...declaration, id: `${id}:night`, title: '晚间休息', text: '没有紧急任务时温和建议伙伴早点休息。' });
-  assert.throws(() => ReminderSources.parseCallout({ ...block, markdown: markdown.replace('reminder/v2', 'reminder/v3') }), /format/);
+  assert.throws(() => ReminderSources.parseCallout({ ...block, markdown: markdown.replace('reminder/v2', 'reminder/v99') }), /format/);
+});
+
+test('callouts preserve output scopes, shared quotas and structured failure conditions', () => {
+  const declarations = [
+    { format: 'reminder/v3', id: 'output', on: 'assistant.output',
+      scope: { sessionIds: ['one', 'two'], agentPresets: ['writing'] },
+      when: { blockTypes: ['text', 'reasoning'], pattern: { kind: 'literal', text: '完成' } },
+      deliver: { model: { once: 'surface', interrupt: 'abort-resume', shared: { reset: 'lifetime', lifetime: 'campaign', limit: 2 } } } },
+    { format: 'reminder/v1', id: 'timeout', on: 'tool.failed', when: { tool: 'pwsh', error: { code: 'TOOL_TIMEOUT' } },
+      deliver: { model: { once: 'surface' } } },
+  ];
+  for (const declaration of declarations) {
+    const markdown = `[!DSH-REMINDER] 提醒\n\n\`\`\`dsh-rule\n${JSON.stringify(declaration)}\n\`\`\`\n核对结果。`;
+    assert.deepEqual(ReminderSources.parseCallout({ ...block, markdown }),
+      { ...declaration, id: `${id}:${declaration.id}`, title: '提醒', text: '核对结果。' });
+  }
 });
 
 // These are source facilities, not a fabricated Host context. SQL is exercised separately against SiYuan.

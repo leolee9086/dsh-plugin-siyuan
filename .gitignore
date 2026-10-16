@@ -2,3 +2,7 @@ node_modules/
 .build-lib/
 releases/
 *.tgz
+# 本地工作记录与验证产物；可分发文档放 docs/，运行时代码放 lib/。
+/.local/
+/artifacts/
+/*.log

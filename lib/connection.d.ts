@@ -5,6 +5,8 @@ import { SocketConnections } from "./websocket.js";
 import { PluginRpc } from "./rpc.js";
 import { McpConnections } from "./mcp.js";
 export declare class SiYuanConnection {
+    /** 管理器通过连接聚合入口取得安全分类，不依赖 WS 内部错误实现。 */
+    static pushPause: (error: unknown) => import("./websocket.js").SocketPause | undefined;
     readonly config: ApiConfig;
     readonly http: HttpConnection;
     readonly ws: SocketConnections;

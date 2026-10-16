@@ -37,6 +37,8 @@ export function createRoute(requestRejection: (request: IncomingMessage) => 401 
         case "sessionKernel": await manager.select(input.kernelId === null ? null : required(input.kernelId), required(input.sessionId)); break;
         case "grant": await manager.grant(required(input.kernelId), required(input.endpointKey), input.decision as Decision); break;
         case "declare": result = await manager.declare(input); break;
+        case "instances": result = await manager.connectionInstances(required(input.kernelId)); break;
+        case "selectInstance": result = await manager.selectInstance(required(input.kernelId), input.pid); break;
         case "test": result = await manager.inspectConnection(required(input.kernelId)); break;
         case "discoverMcp": result = await manager.inspectConnection(required(input.kernelId), true); break;
         case "registerGateway":

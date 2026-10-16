@@ -7,6 +7,7 @@ import { createFetchEntry, RouterContext, type Router } from "@leolee9086/sac-pa
 import type { ApiConfig } from "./api.js";
 import { Contract, type EndpointSpec, loadContract } from "./contract.js";
 import { KernelDiscovery } from "./discovery.js";
+import { sendRequest } from "./http-recovery.js";
 
 export interface HttpOptions {
   method?: string;
@@ -195,7 +196,7 @@ export class HttpConnection {
   }
 
   private send(request: Request): Promise<Response> {
-    return globalThis.fetch(request);
+    return sendRequest(request);
   }
 
   private nodeRequest(url: URL, method: string, headers: Headers, body: ReadableStream<Uint8Array> | null, signal: AbortSignal): Promise<Response> {

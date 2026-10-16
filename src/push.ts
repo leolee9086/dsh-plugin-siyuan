@@ -5,10 +5,12 @@ export type ReminderPush = { kernelId: string } & (
   { kind: 'change'; roots?: string[]; marker?: boolean });
 export type ReminderWatch = (listener: (event: ReminderPush) => void) => () => Promise<void>;
 interface Stream { ended: Promise<void>; dispose(): Promise<void> }
+interface Pause { reason: "authentication" | "permission" | "rate-limit" | "protocol"; message: string; retryAfterSeconds?: number }
 interface Port {
   kernels(): string[];
   open(kernelId: string, signal: AbortSignal, receive: (value: unknown) => void): Promise<Stream>;
   error(error: unknown): string;
+  pause(error: unknown): Pause | undefined;
 }
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -44,6 +46,8 @@ export class ReminderPushHub {
   private listeners = new Set<(event: ReminderPush) => void>();
   private runs = new Map<string, { controller: AbortController; done: Promise<void>; ready: boolean }>();
   private retiring = new Set<Promise<void>>();
+  // 暂停随核心保留；撤销订阅、端点授权和普通配置保存都不解除。
+  private paused = new Map<string, Pause>();
   private closed = false;
   constructor(private port: Port) {}
   private emit(event: ReminderPush) {
@@ -53,6 +57,10 @@ export class ReminderPushHub {
     if (this.closed) throw new Error('思源推送已卸载');
     this.listeners.add(listener);
     for (const [kernelId, run] of this.runs) if (run.ready) listener({ kernelId, kind: 'ready' });
+    for (const kernelId of this.port.kernels()) {
+      const pause = this.paused.get(kernelId);
+      if (pause) listener({ kernelId, kind: 'offline', message: pause.message });
+    }
     this.sync();
     return async () => {
       this.listeners.delete(listener);
@@ -61,19 +69,38 @@ export class ReminderPushHub {
   };
   private stop() {
     for (const [kernelId, run] of this.runs) {
+      run.ready = false; run.controller.abort();
       this.emit({ kernelId, kind: 'offline' });
-      run.controller.abort();
       this.retiring.add(run.done);
       void run.done.finally(() => this.retiring.delete(run.done));
     }
     this.runs.clear();
   }
-  /** 持久配置 ACK 后重建连接快照；旧连接事件由 controller 隔离。 */
-  reset() { this.stop(); this.sync(); }
+  /** 只有成功提交的连接绑定更新可以解除指定核心的暂停。 */
+  reset(resumeFor: string[] = []) {
+    this.stop();
+    for (const kernelId of resumeFor) this.paused.delete(kernelId);
+    this.sync();
+  }
+  pausedState(kernelId: string) {
+    const pause = this.paused.get(kernelId);
+    return pause ? { ...pause } : undefined;
+  }
+  /** HTTP 快照与 WS 共用核心暂停；停止现有流，离线事件撤下已注册的规则。 */
+  pause(kernelId: string, error: unknown) {
+    if (this.closed || !this.port.kernels().includes(kernelId)) return;
+    const pause = this.port.pause(error);
+    if (!pause) return;
+    this.paused.set(kernelId, pause);
+    const run = this.runs.get(kernelId);
+    if (run) { run.ready = false; run.controller.abort(); }
+    this.emit({ kernelId, kind: 'offline', message: pause.message });
+    return pause;
+  }
   private sync() {
     if (this.closed || !this.listeners.size) return;
     for (const kernelId of this.port.kernels()) {
-      if (this.runs.has(kernelId)) continue;
+      if (this.runs.has(kernelId) || this.paused.has(kernelId)) continue;
       const controller = new AbortController();
       const run = { controller, done: Promise.resolve(), ready: false };
       this.runs.set(kernelId, run);
@@ -97,12 +124,15 @@ export class ReminderPushHub {
             if (Date.now() - opened >= 30000) backoff = 1000;
             if (!controller.signal.aborted) throw new Error('思源推送连接已断开');
           } catch (error) {
-            if (!controller.signal.aborted) this.emit({ kernelId, kind: 'offline', message: this.port.error(error) });
+            run.ready = false;
+            if (!controller.signal.aborted && !this.pause(kernelId, error)) {
+              this.emit({ kernelId, kind: 'offline', message: this.port.error(error) });
+            }
           } finally {
             run.ready = false;
             await stream?.dispose().catch(() => {});
           }
-          if (controller.signal.aborted) break;
+          if (controller.signal.aborted || this.paused.has(kernelId)) break;
           await delay(backoff, undefined, { signal: controller.signal, ref: false }).catch(() => {});
           backoff = Math.min(30000, backoff * 2);
         }

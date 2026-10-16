@@ -1,33 +1,52 @@
 /** 宿主共享的核心管理器。公共服务开放受控 invoke，提醒来源使用内部专用读取。 */
 import { randomUUID } from "node:crypto";
 import Ajv from "ajv";
+import type { CredentialProvider, CredentialRef } from "@deepseek-ai/dsh-credentials";
+import type { Domain as StorageDomain, KvTable } from "@deepseek-ai/dsh-storage-domain";
 import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { SiYuanConnection } from "./connection.js";
 import { ReminderPushHub, type ReminderWatch } from "./push.js";
-import { normalizeConfig, KernelError, callKernel } from "./api.js";
+import { normalizeConfig, KernelError, KernelAccessError, callKernel } from "./api.js";
 import { loadContract } from "./contract.js";
 import { SecretFilter } from "./secrets.js";
 import { EndpointPolicy, type Endpoint, type Decision } from "./policy.js";
 const { endpoint, blockedHttp, cleanPath, identify, filterEndpoints } = EndpointPolicy;
-import type { ToolArgs } from "./tool.js";
+import { toolDef, type ToolArgs, type ToolExecution } from "./tool.js";
 import { GatewayPublication, type PublicationPort } from "./gateway-publication.js";
-export type { GatewayHost } from "./gateway-publication.js";
 
-export interface Execution { signal?: AbortSignal; callId?: string; name?: string; agent?: { session: { id: string } } }
+export type Execution = ToolExecution;
 export type { Kernel } from "./control-state.js";
 import { ControlState, type Kernel, type State, type Activity } from "./control-state.js";
 const { DOMAIN_SPEC, revokeBinding, replaceDiscovered, recoverActivity, selectKernel, requireBoundKernel, requireRevision } = ControlState;
 export { DOMAIN_SPEC };
-interface Table<T> { get(key: string): T | undefined; put(key: string, value: T): Promise<void>; entries(): IterableIterator<[string, T]> }
-export interface Domain { table(name: string): Table<any>; close(): Promise<void> }
-export interface Credentials {
-  resolve(ref: string): Promise<{ value: string } | undefined>;
-  describe(ref: string): Promise<{ configured: boolean; writable: boolean }>;
-  set(ref: string, value: string): Promise<void>; unset(ref: string): Promise<void>;
+type Table<T> = Pick<KvTable<string, T>, "get" | "entries"> & Pick<KvTable<string, unknown>, "put">;
+// 领域只依赖实际使用的表操作；Host 的完整 Domain 可直接提供这些能力。
+export type Domain = Pick<StorageDomain<typeof DOMAIN_SPEC>, "close"> & {
+  table(name: keyof typeof DOMAIN_SPEC.tables): Table<unknown>;
+};
+/** 存储端口接收未知数据，领域 schema 同时约束读取和脱敏后的写入。 */
+function checkedTable<T>(table: Table<unknown>, schema: { parse(value: unknown): T }): Table<T> {
+  return {
+    get(key) { const value = table.get(key); return value === undefined ? undefined : schema.parse(value); },
+    async put(key, value) { await table.put(key, schema.parse(value)); },
+    *entries() { for (const [key, value] of table.entries()) yield [key, schema.parse(value)]; },
+  };
 }
+export type Credentials = Pick<CredentialProvider, "set" | "unset"> & {
+  resolve(...args: Parameters<CredentialProvider["resolve"]>):
+    Promise<Pick<NonNullable<Awaited<ReturnType<CredentialProvider["resolve"]>>>, "value"> | undefined>;
+  describe(...args: Parameters<CredentialProvider["describe"]>):
+    Promise<Pick<Awaited<ReturnType<CredentialProvider["describe"]>>, "configured" | "writable">>;
+};
 type Runner = (connection: SiYuanConnection, name: string, args: ToolArgs, exec?: Execution) => Promise<{ summary: string }>;
-const refFor = (id: string) => `DSH_SIYUAN_${id.replace(/-/g, "_").toUpperCase()}`;
+function refFor(id: string): CredentialRef {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) throw new Error("思源核心 ID 无效");
+  // 已校验的核心 ID 经此固定转换满足凭据引用的 POSIX 标识符格式。
+  return `DSH_SIYUAN_${id.replace(/-/g, "_").toUpperCase()}` as CredentialRef;
+}
 const ajv = new Ajv({ strict: false });
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
 function resourceIds(value: unknown, result = new Set<string>()): string[] {
   if (typeof value === "string" && /^\d{14}-[0-9a-z]{7}$/.test(value)) result.add(value);
   else if (Array.isArray(value)) value.forEach(item => resourceIds(item, result));
@@ -45,6 +64,10 @@ export class KernelManager {
   #push = new ReminderPushHub({
     kernels: () => this.reminderKernels(),
     error: error => this.#secrets.error(error).message,
+    pause: error => {
+      const pause = KernelAccessError.pauseFor(error) ?? SiYuanConnection.pushPause(error);
+      return pause ? { ...pause, message: this.#secrets.text(pause.message) } : undefined;
+    },
     open: async (kernelId, signal, receive) => {
       await this.#writeChain;
       signal.throwIfAborted();
@@ -54,19 +77,20 @@ export class KernelManager {
       try {
         requireRevision(revision, this.#state.revision, this.#closed, "推送连接期间配置已变化");
         signal.throwIfAborted();
-        const socket = await connection.ws.open(`/ws?app=dsh-reminders-${randomUUID()}&id=${randomUUID()}&type=main`, {
-          signal, onMessage: (data, binary) => {
+        // 关闭结果先以已兑现的值保存，open 失败时也不会留下无人接管的 rejected Promise。
+        let finish!: (error?: Error) => void;
+        const closed = new Promise<Error | undefined>(resolve => { finish = resolve; });
+        await connection.ws.open(`/ws?app=dsh-reminders-${randomUUID()}&id=${randomUUID()}&type=main`, {
+          signal, onClose: finish, onMessage: (data, binary) => {
             if (binary) return;
             let value: unknown;
             try { value = JSON.parse(data.toString("utf8")); } catch { return; }
             receive(value);
           },
         });
-        // close 可能在 await open 恢复前发生，先监听再检查状态。
-        const ended = new Promise<void>(resolve => {
-          socket.once("close", () => resolve());
-          if (socket.readyState !== socket.OPEN) resolve();
-        });
+        const ended = closed.then(error => { if (error) throw error; });
+        // 调用方可能已经取消而不再 await ended；仍保留原 Promise 的拒绝供正常订阅读取。
+        void ended.catch(() => {});
         return { ended, dispose: () => this.release(connection) };
       } catch (error) { await this.release(connection); throw error; }
     },
@@ -108,11 +132,12 @@ export class KernelManager {
   readonly contract = loadContract();
   constructor(private domain: Domain, private credentials: Credentials, private run: Runner,
     private approve?: (exec: Execution, reason: string, decision: Decision) => Promise<string>) {
-    this.#config = domain.table("config"); this.#activity = domain.table("activity");
+    this.#config = checkedTable(domain.table("config"), DOMAIN_SPEC.tables.config.valueSchema);
+    this.#activity = checkedTable(domain.table("activity"), DOMAIN_SPEC.tables.activity.valueSchema);
   }
   async initialize(rawConfig: unknown) {
     const stored = this.#config.get("state");
-    if (stored) this.#state = DOMAIN_SPEC.tables.config.valueSchema.parse(stored);
+    if (stored !== undefined) this.#state = stored;
     else {
       const config = normalizeConfig(rawConfig);
       this.#secrets.remember(config.token);
@@ -145,11 +170,14 @@ export class KernelManager {
   private serial<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.#writeChain.then(fn); this.#writeChain = next.catch(() => {}); return next;
   }
-  private async commit(state: State) {
+  private async persist(state: State) {
     state.revision = this.#state.revision + 1;
     await this.#config.put("state", state); this.#state = state;
+  }
+  private async commit(state: State, resumePushFor: string[] = []) {
+    await this.persist(state);
     this.syncGateway();
-    this.#push.reset();
+    this.#push.reset(resumePushFor);
   }
   private async connect(kernel: Kernel, signal?: AbortSignal): Promise<SiYuanConnection> {
     if (this.#closed) throw new Error("思源管理器已卸载");
@@ -188,16 +216,20 @@ export class KernelManager {
   /** 插件内部固定读取提醒块；与模型工具的端点审批分开，也不发布到公共服务。 */
   async readReminderBlocks(kernelId: string, roots: string[] | undefined, signal: AbortSignal) {
     let connection: SiYuanConnection | undefined;
+    let revision: number | undefined;
     try {
       await this.#writeChain;
       signal.throwIfAborted();
+      const paused = this.#push.pausedState(kernelId);
+      if (paused) throw new Error(paused.message);
       await this.refreshSecrets();
       const kernel = await this.bindConnection(kernelId, signal);
-      const revision = this.#state.revision;
+      const expectedRevision = this.#state.revision;
+      revision = expectedRevision;
       const current = async () => {
         await this.#writeChain;
         signal.throwIfAborted();
-        requireRevision(revision, this.#state.revision, this.#closed, "提醒读取期间配置已变化");
+        requireRevision(expectedRevision, this.#state.revision, this.#closed, "提醒读取期间配置已变化");
       };
       // 这里只接受文档 ID，SQL 和端点由插件固定，调用方不能提交任意查询。
       if (roots?.some(id => !/^\d{14}-[a-z0-9]{7}$/.test(id))) throw new Error("提醒文档 ID 无效");
@@ -212,9 +244,12 @@ export class KernelManager {
       }, signal);
       await current();
       if (!Array.isArray(blocks)) throw new Error("思源规则查询应返回块数组");
-      return this.#secrets.value(blocks);
-    } catch (error) { throw this.#secrets.error(error); }
-    finally { if (connection) await this.release(connection); }
+      return blocks.map((block: unknown) => this.#secrets.value(block));
+    } catch (error) {
+      // 旧配置或已取消读取的迟到响应不能暂停新连接。
+      if (!signal.aborted && revision === this.#state.revision) this.#push.pause(kernelId, error);
+      throw this.#secrets.error(error);
+    } finally { if (connection) await this.release(connection); }
   }
   /** Rule sources follow the same session/core selection as ordinary tools. */
   acceptsReminder(kernelId: string, sessionId: string) {
@@ -224,7 +259,7 @@ export class KernelManager {
   async publicState() {
     return { revision: this.#state.revision, defaultKernelId: this.#state.defaultKernelId, gateway: this.gatewayState(),
       kernels: await Promise.all(this.#state.kernels.map(async kernel => ({ ...kernel,
-        credential: await this.credentials.describe(refFor(kernel.id)) }))) };
+        credential: await this.credentials.describe(refFor(kernel.id)), reminderPause: this.#push.pausedState(kernel.id) }))) };
   }
   endpoints(kernelId: string, filter: Parameters<typeof filterEndpoints>[3]) {
     this.kernel(kernelId); return filterEndpoints(this.catalog(kernelId), this.#state.grants, kernelId, filter);
@@ -247,17 +282,45 @@ export class KernelManager {
       const { token: _token, ...publicConfig } = config;
       const kernel: Kernel = { id: kernelId, name: input.name.trim(), enabled: input.enabled !== false, ...publicConfig };
       const previous = state.kernels.find(item => item.id === kernelId);
+      let connectionChanged = !previous || previous.apiUrl !== kernel.apiUrl
+        || previous.portFile !== kernel.portFile || previous.kernelPid !== kernel.kernelPid;
       if (previous && (previous.apiUrl !== kernel.apiUrl || previous.portFile !== kernel.portFile || previous.kernelPid !== kernel.kernelPid)) {
         // 地址重新绑定需要重新声明端点权限，旧授权不挪给另一个库。
         revokeBinding(state, kernelId);
       }
       state.kernels = [...state.kernels.filter(item => item.id !== kernelId), kernel];
-      // token 只作为人工 POST 的写入字段存在，不出现在 State、活动或返回值。
+      // 凭据服务和配置存储是两个端口；配置提交失败时恢复凭据，让相同更新可以重试。
+      const ref = refFor(kernelId);
+      let previousCredential: string | undefined;
+      let credentialChanged = false, credentialWritten = false;
       if (input.token !== undefined && input.token !== "") {
         if (typeof input.token !== "string" || /[\r\n]/.test(input.token) || input.token.length > 8192) throw new Error("token 必须为单行文本");
-        this.#secrets.remember(input.token); await this.credentials.set(refFor(kernelId), input.token);
-      } else if (input.clearToken === true) await this.credentials.unset(refFor(kernelId));
-      await this.commit(state); return { id: kernelId };
+        const token = input.token.trim();
+        previousCredential = (await this.credentials.resolve(ref))?.value;
+        credentialChanged = token !== (previousCredential?.trim() ?? "");
+        if (credentialChanged) {
+          this.#secrets.remember(token); await this.credentials.set(ref, token); credentialWritten = true;
+        }
+      } else if (input.clearToken === true) {
+        previousCredential = (await this.credentials.resolve(ref))?.value;
+        credentialChanged = !!previousCredential?.trim();
+        if (previousCredential !== undefined) { await this.credentials.unset(ref); credentialWritten = true; }
+      }
+      connectionChanged ||= credentialChanged;
+      // 仅补偿持久写入失败；提交后的订阅通知失败不能把凭据撤回旧版本。
+      try { await this.persist(state); }
+      catch (error) {
+        if (credentialWritten) {
+          try {
+            if (previousCredential === undefined) await this.credentials.unset(ref);
+            else await this.credentials.set(ref, previousCredential);
+          } catch { throw new Error("核心配置保存失败，且凭据未能恢复；请在编辑页重新核对并保存凭据"); }
+        }
+        throw this.#secrets.error(error);
+      }
+      this.syncGateway();
+      this.#push.reset(kernel.enabled && connectionChanged ? [kernelId] : []);
+      return { id: kernelId };
     });
   }
   async removeKernel(id: string) {
@@ -314,21 +377,36 @@ export class KernelManager {
       await this.commit(state);
     });
   }
-  /** 首次使用串行绑定唯一实例；并发检查共用落盘后的 PID，后续不会换到另一实例。 */
-  private async bindConnection(kernelId: string, signal?: AbortSignal) {
+  /** 候选探针不携带凭据，也不依赖旧 PID 是否仍可连接。 */
+  async connectionInstances(kernelId: string) {
+    await this.#writeChain;
+    const probe = new SiYuanConnection({ ...this.kernel(kernelId), token: "" });
+    try { return await probe.discovery.status(); }
+    finally { await probe.dispose(); }
+  }
+  async selectInstance(kernelId: string, pid: unknown) {
+    if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) throw new Error("pid 必须为正整数");
+    const kernel = await this.bindConnection(kernelId, undefined, pid);
+    return { kernelId, selectedPid: kernel.kernelPid };
+  }
+  /** 每次派发前重新发现，串行保存恢复结果；进行中的业务请求固定原目标。 */
+  private async bindConnection(kernelId: string, signal?: AbortSignal, selectedPid?: number) {
     return this.serial(async () => {
       signal?.throwIfAborted();
       const kernel = this.kernel(kernelId);
       if (this.#closed || !kernel.enabled) throw new Error("思源核心已停用或管理器已卸载");
-      if (kernel.apiUrl !== "auto" || kernel.kernelPid) return kernel;
+      if (kernel.apiUrl !== "auto") {
+        if (selectedPid !== undefined) throw new Error("显式地址无需选择本机实例");
+        return kernel;
+      }
       const probe = new SiYuanConnection({ ...kernel, token: "" });
       try {
         const instances = await probe.discovery.discover(signal);
         const state = structuredClone(this.#state);
-        ControlState.bindDiscovered(state, kernelId, instances);
+        if (!ControlState.reconcileBinding(state, kernelId, instances, selectedPid)) return kernel;
         signal?.throwIfAborted();
         if (this.#closed) throw new Error("思源管理器已卸载");
-        await this.commit(state);
+        await this.commit(state, [kernelId]);
         return this.kernel(kernelId);
       } finally { await probe.dispose(); }
     });
@@ -339,10 +417,36 @@ export class KernelManager {
     const revision = this.#state.revision;
     const connection = await this.connect(kernel);
     try {
-      const response = await connection.http.request("/api/system/version", { method: "POST" });
-      if (!response.ok) throw new Error(`连接检查 HTTP ${response.status}`);
-      const version = await response.json() as any;
-      if (version.code !== 0) throw new Error("内核拒绝连接检查，请检查凭据");
+      const version = await callKernel(connection, "/api/system/version");
+      if (typeof version !== "string") throw new Error("内核版本响应无效");
+      // version 是公开端点；受保护的只读接口确认访问能力，不能单凭成功响应证明代理透传了 token。
+      const auth = await connection.json("/api/notebook/lsNotebooks", {});
+      if (revision === this.#state.revision && (auth.status === 401 || auth.status === 403 || auth.status === 429)) {
+        this.#push.pause(kernelId, new KernelAccessError(auth.status, auth.headers.get("retry-after")));
+      }
+      if (auth.status === 401) {
+        const failure: unknown = await auth.json().catch(() => undefined);
+        if (connection.config.token && failure && typeof failure === "object" && "msg" in failure
+          && failure.msg === "Auth failed [header: Authorization]") {
+          throw new Error("思源服务可达，但 API token 可能不匹配（HTTP 401）；请检查核心 token、代理请求头及访问策略，更新配置后再检查");
+        }
+        throw new Error("思源服务可达，但只读接口拒绝访问（HTTP 401）；请检查登录认证、代理及核心访问策略");
+      }
+      if (auth.status === 403) {
+        await auth.body?.cancel();
+        throw new Error("思源服务可达，但当前身份没有访问权限（HTTP 403）；请检查角色权限和核心访问策略");
+      }
+      if (auth.status === 429) {
+        const header = auth.headers.get("retry-after");
+        const wait = header && /^\d{1,6}$/.test(header) ? `Retry-After ${Number(header)} 秒` : header ? "请按 Retry-After 等待" : "请稍后再检查";
+        await auth.body?.cancel();
+        throw new Error(`思源服务可达，但访问受到限流（HTTP 429，${wait}）；本次检查未自动重试`);
+      }
+      if (!auth.ok) { await auth.body?.cancel(); throw new Error(`访问检查 HTTP ${auth.status}`); }
+      const checked: unknown = await auth.json();
+      if (!checked || typeof checked !== "object" || !("code" in checked) || checked.code !== 0) {
+        throw new Error("思源服务可达，但只读接口拒绝访问，请检查认证和核心状态");
+      }
       let count = 0;
       if (discoverMcp) {
         const items: Endpoint[] = [];
@@ -365,15 +469,26 @@ export class KernelManager {
           await this.commit(state);
         });
       }
-      return this.#secrets.value({ apiUrl: connection.config.apiUrl, version: version.data, mcpTools: count });
-    } catch (error) { throw this.#secrets.error(error); }
-    finally { await this.release(connection); }
+      return { apiUrl: this.#secrets.text(connection.config.apiUrl), version: this.#secrets.text(version), accessAvailable: true,
+        credentialSent: !!connection.config.token, mcpTools: count };
+    } catch (error) {
+      if (revision === this.#state.revision) this.#push.pause(kernelId, error);
+      throw this.#secrets.error(error);
+    } finally { await this.release(connection); }
   }
   /** 宿主工具和公共服务消费者均走这个方法，外部拿不到带 token 的原始连接。 */
   async invoke(name: string, input: ToolArgs, exec?: Execution): Promise<{ summary: string }> {
     await this.#writeChain;
+    // 目录只读本地配置：无默认核心、核心停用或断线时仍可供调用方选择。
+    if (name === "siyuan_kernels") {
+      if (!this.#validators.get(name)?.(input)) throw new Error(`${name} 参数不合法`);
+      exec?.signal?.throwIfAborted();
+      if (this.#closed) throw new Error("思源管理器已卸载");
+      const directory = ControlState.kernelDirectory(this.#state, exec?.agent?.session.id ?? exec?.sessionId);
+      return { summary: JSON.stringify(this.#secrets.value(directory), null, 2) };
+    }
     await this.refreshSecrets();
-    const args = { ...input }; const sessionId = exec?.agent?.session?.id;
+    const args = { ...input }; const sessionId = exec?.agent?.session.id ?? exec?.sessionId;
     const kernelId = ControlState.targetId(this.#state, args.kernelId, sessionId);
     delete args.kernelId;
     const started = Date.now();
@@ -441,10 +556,10 @@ export class KernelManager {
       const notificationOnly = args.notification || (args.channel === "plugin" && Array.isArray(args.calls)
         && args.calls.length > 0 && args.calls.every(call => call.notification === true));
       activity.status = args.channel === "ws" || notificationOnly ? "sent" : "succeeded";
-      if (safe && typeof safe === "object" && ((typeof safe.status === "number" && safe.status >= 400)
-        || safe.isError === true || typeof safe.body?.code === "number" && safe.body.code !== 0)) activity.status = "failed";
-      if (Array.isArray(safe) && safe.some(item => item?.error)) {
-        activity.status = safe.some(item => item && !item.error) ? "partial" : "failed";
+      if (isRecord(safe) && ((typeof safe.status === "number" && safe.status >= 400)
+        || safe.isError === true || isRecord(safe.body) && typeof safe.body.code === "number" && safe.body.code !== 0)) activity.status = "failed";
+      if (Array.isArray(safe) && safe.some((item: unknown) => isRecord(item) && item.error)) {
+        activity.status = safe.some((item: unknown) => isRecord(item) && !item.error) ? "partial" : "failed";
       }
       activity.elapsedMs = Date.now() - started;
       try { await this.#activity.put(activity.id, this.#secrets.value(activity)); }
@@ -471,21 +586,29 @@ export class KernelManager {
   }
 }
 
-/** 工具注册时只增加目标选择参数，工具数量仍为五个，配置写入不成为模型工具。 */
-export function managedTools(manager: KernelManager, templates: any[]) {
-  return templates.map(tool => {
-    const parameters = { ...tool.parameters, properties: { ...tool.parameters.properties,
+/** 五个业务工具增加目标选择参数，核心目录独立注册并沿用同一个管理器入口。 */
+export function managedTools(manager: KernelManager, templates: ReturnType<typeof toolDef>[]) {
+  const tools = templates.map(tool => {
+    const properties = tool.parameters.properties;
+    if (!isRecord(properties)) throw new Error(`${tool.name} 参数 schema 缺少 properties 对象`);
+    const parameters = { ...tool.parameters, properties: { ...properties,
       ...(tool.name === "siyuan_rpc" ? { action: { type: "string", enum: ["status"] } } : {}),
       kernelId: { type: "string", description: "明确指定思源核心 ID；省略时使用会话选择或配置的默认核心" } } };
-    const validate = ajv.compile(parameters);
+    const validate = ajv.compile<ToolArgs>(parameters);
     manager.defineTool(tool.name, validate);
     const description = tool.name === "siyuan_rpc"
       ? "思源受控通用调用：HTTP、离线契约发现、插件 JSON-RPC、MCP、WS 和连接状态。MCP tools/call 与插件批量需逐项授权；WS 发送需 JSON cmd。契约发现返回可选核心 ID。切换实例请使用思源连接管理界面。"
       : tool.description;
     return { ...tool, parameters, description: `${description} 端点默认每次询问、完全权限下拒绝；可在思源连接管理界面逐项设置；凭据由宿主注入。`,
-      async execute(args: ToolArgs, exec?: Execution) {
+      async execute(args: unknown, exec?: Execution) {
         if (!validate(args)) throw new Error(`${tool.name} 参数不合法`);
         return manager.invoke(tool.name, args, exec);
       } };
   });
+  const directory = toolDef("siyuan_kernels",
+    "列出所有已配置的思源核心：ID、名称、启用状态、API 地址、绑定 PID、默认核心及当前会话选择。enabled 表示配置启用状态；此工具不探测在线状态。无需参数，返回的 ID 可用于业务工具的 kernelId。",
+    { type: "object", properties: {}, additionalProperties: false },
+    async (args, _signal, exec) => (await manager.invoke("siyuan_kernels", args, exec)).summary);
+  manager.defineTool(directory.name, ajv.compile(directory.parameters));
+  return [...tools, directory];
 }

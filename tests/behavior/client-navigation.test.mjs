@@ -118,3 +118,38 @@ test("卡片主按钮打开思源侧栏，参数展开独立，侧栏定位显�
     globalThis.window = previous.window; globalThis.document = previous.document; globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
   }
 });
+
+test("暂停核心跳过自动检查，人工检查只请求一次且保持提醒暂停", async () => {
+  const dom = new JSDOM('<div id="app"></div>');
+  const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT };
+  globalThis.window = dom.window; globalThis.document = dom.window.document; globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const root = createRoot(dom.window.document.getElementById('app'));
+  const state = { revision: 1, defaultKernelId: 'local', kernels: [{ id: 'local', name: 'fixture core',
+    apiUrl: 'http://127.0.0.1:6806', enabled: true, timeoutMs: 1000, credential: { configured: true, writable: true },
+    reminderPause: { reason: 'rate-limit', message: 'HTTP 429；Retry-After 30 秒；已暂停' } }] };
+  let calls = 0, deny = false;
+  const ui = createClientUI(React, { icon: 'fixture.svg',
+    get: async () => structuredClone(state),
+    post: async input => {
+      assert.equal(input.action, 'test'); assert.equal(input.kernelId, 'local'); calls++;
+      if (deny) throw new Error('HTTP 429；稍后再检查');
+      return { version: 'fixture-version', apiUrl: state.kernels[0].apiUrl, accessAvailable: true, credentialSent: true };
+    } });
+  const click = async label => act(async () => {
+    const button = [...dom.window.document.querySelectorAll('button')].find(item => item.textContent === label);
+    assert.ok(button, label); button.click();
+  });
+  try {
+    await act(async () => root.render(React.createElement(ui.Main)));
+    assert.equal(calls, 0); assert.match(dom.window.document.body.textContent, /提醒已暂停/);
+    await click('刷新'); assert.equal(calls, 0);
+    await click('重新检查连接'); assert.equal(calls, 1);
+    assert.match(dom.window.document.body.textContent, /访问可用.*已发送配置凭据/);
+    assert.match(dom.window.document.body.textContent, /提醒已暂停/);
+    deny = true; await click('重新检查连接'); assert.equal(calls, 2);
+    assert.match(dom.window.document.body.textContent, /HTTP 429；稍后再检查/);
+  } finally {
+    await act(async () => root.unmount()); dom.window.close();
+    globalThis.window = previous.window; globalThis.document = previous.document; globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
+  }
+});

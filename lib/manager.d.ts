@@ -1,3 +1,5 @@
+import type { CredentialProvider } from "@deepseek-ai/dsh-credentials";
+import type { Domain as StorageDomain, KvTable } from "@deepseek-ai/dsh-storage-domain";
 import { SiYuanConnection } from "./connection.js";
 import { type ReminderWatch } from "./push.js";
 import { type Endpoint, type Decision } from "./policy.js";
@@ -25,58 +27,33 @@ declare const filterEndpoints: (items: Endpoint[], grants: import("./policy.js")
         inputSchema?: Record<string, unknown>;
     }[];
 };
-import type { ToolArgs } from "./tool.js";
+import { toolDef, type ToolArgs, type ToolExecution } from "./tool.js";
 import { type PublicationPort } from "./gateway-publication.js";
-export type { GatewayHost } from "./gateway-publication.js";
-export interface Execution {
-    signal?: AbortSignal;
-    callId?: string;
-    name?: string;
-    agent?: {
-        session: {
-            id: string;
-        };
-    };
-}
+export type Execution = ToolExecution;
 export type { Kernel } from "./control-state.js";
+import { type State, type Activity } from "./control-state.js";
 declare const DOMAIN_SPEC: {
     name: string;
     version: number;
-    layout: string;
+    layout: "per-record";
     tables: {
         config: {
-            valueSchema: {
-                parse(value: any): any;
-            };
+            valueSchema: import("zod").ZodPipe<import("zod").ZodPreprocess<import("zod").ZodCustom<State, State>, unknown>, import("zod").ZodTransform<State, State>>;
         };
         activity: {
-            valueSchema: {
-                parse(value: any): any;
-            };
+            valueSchema: import("zod").ZodPipe<import("zod").ZodPreprocess<import("zod").ZodCustom<Activity, Activity>, unknown>, import("zod").ZodTransform<Activity, Activity>>;
         };
     };
 };
 export { DOMAIN_SPEC };
-interface Table<T> {
-    get(key: string): T | undefined;
-    put(key: string, value: T): Promise<void>;
-    entries(): IterableIterator<[string, T]>;
-}
-export interface Domain {
-    table(name: string): Table<any>;
-    close(): Promise<void>;
-}
-export interface Credentials {
-    resolve(ref: string): Promise<{
-        value: string;
-    } | undefined>;
-    describe(ref: string): Promise<{
-        configured: boolean;
-        writable: boolean;
-    }>;
-    set(ref: string, value: string): Promise<void>;
-    unset(ref: string): Promise<void>;
-}
+type Table<T> = Pick<KvTable<string, T>, "get" | "entries"> & Pick<KvTable<string, unknown>, "put">;
+export type Domain = Pick<StorageDomain<typeof DOMAIN_SPEC>, "close"> & {
+    table(name: keyof typeof DOMAIN_SPEC.tables): Table<unknown>;
+};
+export type Credentials = Pick<CredentialProvider, "set" | "unset"> & {
+    resolve(...args: Parameters<CredentialProvider["resolve"]>): Promise<Pick<NonNullable<Awaited<ReturnType<CredentialProvider["resolve"]>>>, "value"> | undefined>;
+    describe(...args: Parameters<CredentialProvider["describe"]>): Promise<Pick<Awaited<ReturnType<CredentialProvider["describe"]>>, "configured" | "writable">>;
+};
 type Runner = (connection: SiYuanConnection, name: string, args: ToolArgs, exec?: Execution) => Promise<{
     summary: string;
 }>;
@@ -115,6 +92,7 @@ export declare class KernelManager {
     private refreshSecrets;
     private kernel;
     private serial;
+    private persist;
     private commit;
     private connect;
     private release;
@@ -122,7 +100,7 @@ export declare class KernelManager {
     /** Discover rules from existing enabled connections; no separate rule-root configuration. */
     reminderKernels(): string[];
     /** 插件内部固定读取提醒块；与模型工具的端点审批分开，也不发布到公共服务。 */
-    readReminderBlocks(kernelId: string, roots: string[] | undefined, signal: AbortSignal): Promise<any>;
+    readReminderBlocks(kernelId: string, roots: string[] | undefined, signal: AbortSignal): Promise<unknown[]>;
     /** Rule sources follow the same session/core selection as ordinary tools. */
     acceptsReminder(kernelId: string, sessionId: string): boolean;
     publicState(): Promise<{
@@ -138,10 +116,12 @@ export declare class KernelManager {
             error: string;
         };
         kernels: {
-            credential: {
-                configured: boolean;
-                writable: boolean;
-            };
+            credential: Pick<import("@deepseek-ai/dsh-credentials").CredentialInfo, "configured" | "writable">;
+            reminderPause: {
+                reason: "authentication" | "permission" | "rate-limit" | "protocol";
+                message: string;
+                retryAfterSeconds?: number;
+            } | undefined;
             id: string;
             name: string;
             apiUrl: string;
@@ -168,7 +148,7 @@ export declare class KernelManager {
             inputSchema?: Record<string, unknown>;
         }[];
     };
-    activities(sessionId: string, offset?: number, limit?: number): any;
+    activities(sessionId: string, offset?: number, limit?: number): unknown;
     saveKernel(input: Record<string, unknown>): Promise<{
         id: string;
     }>;
@@ -176,17 +156,80 @@ export declare class KernelManager {
     select(kernelId: string | null, sessionId?: string): Promise<void>;
     declare(input: Record<string, unknown>): Promise<Endpoint>;
     grant(kernelId: string, endpointKey: string, decision: Decision): Promise<void>;
-    /** 首次使用串行绑定唯一实例；并发检查共用落盘后的 PID，后续不会换到另一实例。 */
+    /** 候选探针不携带凭据，也不依赖旧 PID 是否仍可连接。 */
+    connectionInstances(kernelId: string): Promise<{
+        mode: string;
+        apiUrl: string;
+        portFile?: undefined;
+        selectedPid?: undefined;
+        instances?: undefined;
+    } | {
+        mode: string;
+        portFile: string;
+        selectedPid: number | null;
+        instances: import("./discovery.js").KernelInstance[];
+        apiUrl?: undefined;
+    }>;
+    selectInstance(kernelId: string, pid: unknown): Promise<{
+        kernelId: string;
+        selectedPid: number | undefined;
+    }>;
+    /** 每次派发前重新发现，串行保存恢复结果；进行中的业务请求固定原目标。 */
     private bindConnection;
-    inspectConnection(kernelId: string, discoverMcp?: boolean): Promise<any>;
+    inspectConnection(kernelId: string, discoverMcp?: boolean): Promise<{
+        apiUrl: string;
+        version: string;
+        accessAvailable: boolean;
+        credentialSent: boolean;
+        mcpTools: number;
+    }>;
     /** 宿主工具和公共服务消费者均走这个方法，外部拿不到带 token 的原始连接。 */
     invoke(name: string, input: ToolArgs, exec?: Execution): Promise<{
         summary: string;
     }>;
     /** 为管理 HTTP 接口提供安全投影，任何异常都不携带原始请求或凭据。 */
-    safe(value: unknown): any;
+    safe(value: unknown): unknown;
     error(error: unknown): Error;
     close(): Promise<void>;
 }
-/** 工具注册时只增加目标选择参数，工具数量仍为五个，配置写入不成为模型工具。 */
-export declare function managedTools(manager: KernelManager, templates: any[]): any[];
+/** 五个业务工具增加目标选择参数，核心目录独立注册并沿用同一个管理器入口。 */
+export declare function managedTools(manager: KernelManager, templates: ReturnType<typeof toolDef>[]): ({
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+    output: import("@deepseek-ai/dsh-tools").ToolOutputDefinition;
+    presentCall: (args: unknown) => {
+        card: "generic";
+        title: string;
+        kind: "other";
+        rawInput: unknown;
+    };
+    execute(args: unknown, exec?: ToolExecution): Promise<{
+        summary: string;
+    }>;
+} | {
+    parameters: {
+        properties: {
+            kernelId: {
+                type: string;
+                description: string;
+            };
+            action?: {
+                type: string;
+                enum: string[];
+            } | undefined;
+        };
+    };
+    description: string;
+    execute(args: unknown, exec?: Execution): Promise<{
+        summary: string;
+    }>;
+    name: string;
+    output: import("@deepseek-ai/dsh-tools").ToolOutputDefinition;
+    presentCall: (args: unknown) => {
+        card: "generic";
+        title: string;
+        kind: "other";
+        rawInput: unknown;
+    };
+})[];

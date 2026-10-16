@@ -1,15 +1,13 @@
 import { parseDocument } from 'yaml';
+import type { ReminderService, ReminderSource, ReminderSourceHandle, ReminderRuleInput } from 'dsh-context-care/reminders';
 import type { ReminderPush, ReminderWatch } from './push.js';
 
-interface RuleSource {
-  sourceId: string; plugin: string; sessionId?: string; revision: number;
-  rules: Record<string, unknown>[]; diagnostics: { id: string; message: string }[];
-}
-interface SourceHandle { replace(source: RuleSource): void; dispose(): void | Promise<void> }
-interface RuleService { registerSource(source: RuleSource, options?: { acceptSession(sessionId: string): boolean }): SourceHandle; validateRule(rule: Record<string, unknown>): unknown }
-export interface RulesHost {
-  get(name: 'reminderRules'): RuleService;
-  effect(setup: () => (() => void | Promise<void>), label?: string): unknown;
+// The source only needs these two methods; their signatures belong to the care runtime.
+type RuleService = Pick<ReminderService, 'registerSource' | 'validateRule'>;
+/** Validation compiles the rule too, but the source retains its original declaration.
+ * Compiled engine fields must not be published back into the strict source schema. */
+function validateDeclaration(service: RuleService, rule: unknown): asserts rule is ReminderRuleInput {
+  service.validateRule(rule);
 }
 interface Options { refreshMs: number }
 // The service owns this namespace; other rule consumers use their own callout subtype.
@@ -47,7 +45,7 @@ function parseCallout(value: unknown) {
   const document = parseDocument(lines.slice(start + 1, end).join('\n'), { uniqueKeys: true, version: '1.2' });
   if (document.errors.length) throw new Error(document.errors.map(error => error.message).join('; '));
   const declaration = object(document.toJS({ maxAliasCount: 0 }));
-  if (declaration.format !== 'reminder/v1' && declaration.format !== 'reminder/v2') throw new Error('format 必须为 reminder/v1 或 reminder/v2');
+  if (!['reminder/v1', 'reminder/v2', 'reminder/v3'].includes(String(declaration.format))) throw new Error('format 必须为 reminder/v1、reminder/v2 或 reminder/v3');
   const localId = declaration.id ?? 'reminder';
   if (typeof localId !== 'string' || !localId || localId.length > 128) throw new Error('规则 id 应为1—128字符');
   const text = [...lines.slice(1, start), ...lines.slice(end + 1)]
@@ -58,11 +56,11 @@ function parseCallout(value: unknown) {
 }
 
 interface CachedBlock {
-  root: string; signature: string; rule?: Record<string, unknown>; diagnostic?: { id: string; message: string };
+  root: string; signature: string; rule?: ReminderRuleInput; diagnostic?: NonNullable<ReminderSource['diagnostics']>[number];
 }
 interface KernelCache {
   ready: boolean; controller: AbortController; full: boolean; roots: Set<string>; retry: boolean; scanning: boolean;
-  blocks: Map<string, CachedBlock>; pending?: RuleSource; content?: string; handle?: SourceHandle;
+  blocks: Map<string, CachedBlock>; pending?: ReminderSource; content?: string; handle?: ReminderSourceHandle;
 }
 /** 订阅负责失效，快照负责内容；计时器只重试失败读取和被容量拒绝的候选。 */
 function attach(service: RuleService, config: Options,
@@ -96,7 +94,7 @@ function attach(service: RuleService, config: Options,
       if (cache.handle) cache.handle.replace(source);
       else cache.handle = service.registerSource(source, { acceptSession: sessionId => accepts(kernelId, sessionId) });
       cache.content = content; cache.pending = undefined;
-      for (const error of source.diagnostics) report(error.id + ': ' + error.message);
+      for (const error of source.diagnostics ?? []) report(error.id + ': ' + error.message);
     } catch (error) {
       // 超限候选保持在内存，下次只重新注册；保留上一批已接受规则。
       if (!(error instanceof Error && 'code' in error && error.code === 'reminder-capacity-exceeded')) {
@@ -124,7 +122,7 @@ function attach(service: RuleService, config: Options,
           parsed = { root, signature };
           try {
             const rule = parseCallout(block);
-            if (rule) { service.validateRule(rule); parsed.rule = rule; }
+            if (rule) { validateDeclaration(service, rule); parsed.rule = rule; }
           } catch (error) { parsed.diagnostic = { id, message: error instanceof Error ? error.message : String(error) }; }
         }
         next.set(id, parsed);

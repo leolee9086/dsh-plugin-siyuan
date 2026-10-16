@@ -1,7 +1,7 @@
 import type { Contract } from "./contract.js";
 import type { State } from "./control-state.js";
 import type { Execution } from "./manager.js";
-import type { ToolArgs } from "./tool.js";
+import { type toolDef, type ToolArgs } from "./tool.js";
 type Invoke = (name: string, args: ToolArgs, exec?: Execution) => Promise<{
     summary: string;
 }>;
@@ -21,30 +21,7 @@ export interface GatewayPort {
 export interface PublicationPort extends GatewayPort {
     registerTool(tool: PublishedTool): () => void;
 }
-export interface GatewayHost {
-    get(name: "toolGateway"): GatewayPort;
-    get(name: "tools"): {
-        register(tool: PublishedTool): () => void;
-    };
-    effect(effect: () => () => void, label: string): unknown;
-}
-export interface PublishedTool {
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
-    output: {
-        schema: object;
-        render(args: unknown, result: {
-            summary: string;
-        }): {
-            type: string;
-            text: string;
-        }[];
-    };
-    execute(args: ToolArgs, exec?: Execution): Promise<{
-        summary: string;
-    }>;
-}
+export type PublishedTool = Omit<ReturnType<typeof toolDef>, "presentCall">;
 export declare class GatewayPublication {
     #private;
     private invoke;

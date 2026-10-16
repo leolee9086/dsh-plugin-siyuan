@@ -1,16 +1,34 @@
 /** 第一批五个工具共享完整思源连接；数据原文在参数整理时保持不变。 */
+import type { Context } from "@deepseek-ai/cordis";
+import type {} from "@deepseek-ai/dsh-tools";
+import type {} from "@deepseek-ai/dsh-storage-domain";
+import type {} from "@deepseek-ai/dsh-credentials";
+import type {} from "@deepseek-ai/dsh-user-approval";
+import type {} from "@deepseek-ai/dsh-sandbox-policy";
+import type {} from "@deepseek-ai/dsh-host-webserver";
+import type {} from "@deepseek-ai/dsh-client-connection";
+import type { ReminderService } from "dsh-context-care/reminders";
 import { callKernel } from "./api.js";
 import { SiYuanConnection } from "./connection.js";
 import { rpcTool } from "./rpc-tool.js";
-import { KernelManager, managedTools, DOMAIN_SPEC, type GatewayHost } from "./manager.js";
+import { KernelManager, managedTools, DOMAIN_SPEC } from "./manager.js";
 import { createRoute, ROUTE } from "./route.js";
 import { EndpointPolicy } from "./policy.js";
-import { ReminderSources, type RulesHost } from "./rules.js";
+import { ReminderSources } from "./rules.js";
 import { toolDef, requiredText as text, requiredId as id, optionalText, contentType, type ToolArgs } from "./tool.js";
 
 export const name = "dsh-plugin-siyuan";
 export const inject = ["tools", "storageDomain", "credentials"];
 export const SERVICE = "siyuan";
+
+// Only plugin-owned services augment Cordis; platform services come from their real packages.
+declare module "@deepseek-ai/cordis" {
+  interface Context {
+    siyuan: Pick<KernelManager, "invoke">;
+    reminderRules: ReminderService;
+    toolGateway: Pick<Parameters<KernelManager["attachGateway"]>[0], "registerGroup">;
+  }
+}
 
 const string = { type: "string" };
 const blockId = { type: "string", pattern: "^\\d{14}-[0-9a-z]{7}$" };
@@ -108,11 +126,11 @@ export function createTools(connection: SiYuanConnection) {
   ];
 }
 
-export async function apply(ctx: any, rawConfig: unknown) {
+export async function apply(ctx: Context, rawConfig: unknown) {
   if (ctx.get(SERVICE) !== undefined) throw new Error("siyuan 服务已存在");
   const reminderOptions = ReminderSources.options(rawConfig);
-  const domain = await ctx.get("storageDomain").open(DOMAIN_SPEC);
-  const manager = new KernelManager(domain, ctx.get("credentials"), async (connection, toolName, args, exec) => {
+  const domain = await ctx.storageDomain.open(DOMAIN_SPEC);
+  const manager = new KernelManager(domain, ctx.credentials, async (connection, toolName, args, exec) => {
     const tool = createTools(connection).find(item => item.name === toolName);
     if (!tool) throw new Error("未知思源工具");
     return tool.execute(args, exec);
@@ -138,12 +156,12 @@ export async function apply(ctx: any, rawConfig: unknown) {
   const template = new SiYuanConnection({});
   try {
     for (const tool of managedTools(manager, createTools(template))) {
-      ctx.effect(() => ctx.get("tools").register(tool), `${name}: ${tool.name}`);
+      ctx.effect(() => ctx.tools.register(tool), `${name}: ${tool.name}`);
     }
   } finally { await template.dispose(); }
-  ctx.inject(["reminderRules"], (scope: RulesHost) => {
+  ctx.inject(["reminderRules"], scope => {
     scope.effect(() => {
-      const sources = ReminderSources.attach(scope.get("reminderRules"), reminderOptions,
+      const sources = ReminderSources.attach(scope.reminderRules, reminderOptions,
         manager.readReminderBlocks.bind(manager), message => ctx.logger.warn(message),
         () => manager.reminderKernels(), (kernelId, sessionId) => manager.acceptsReminder(kernelId, sessionId),
         manager.watchReminders);
@@ -151,15 +169,15 @@ export async function apply(ctx: any, rawConfig: unknown) {
     }, `${name}: reminder sources`);
   });
   // 子作用域等待可选网关；网关卸载时同时撤回扩展工具，重新挂载时按保存的选择恢复。
-  ctx.inject(["toolGateway"], (scope: GatewayHost) => {
+  ctx.inject(["toolGateway"], scope => {
     scope.effect(() => manager.attachGateway({
-      registerGroup: spec => scope.get("toolGateway").registerGroup(spec),
-      registerTool: tool => scope.get("tools").register(tool),
+      registerGroup: spec => scope.toolGateway.registerGroup(spec),
+      registerTool: tool => scope.tools.register(tool),
     }), `${name}: gateway publication`);
   });
   // 与 gateway 同样延迟挂载界面路由，headless 模式不依赖 webServer。
-  ctx.inject(["webServer", "connection"], (scope: any) => {
-    scope.effect(() => scope.get("webServer").register({ kind: "exact", path: ROUTE,
+  ctx.inject(["webServer", "connection"], scope => {
+    scope.effect(() => scope.webServer.register({ kind: "exact", path: ROUTE,
       handler: createRoute(request => {
         const connection = scope.get("connection");
         if (!connection || typeof connection.requestRejection !== "function") return 503;

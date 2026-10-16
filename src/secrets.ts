@@ -29,22 +29,26 @@ export class SecretFilter {
     } catch { /* 普通笔记文字不是 JSON，保持其形式。 */ }
     return output;
   }
-  value(value: unknown): any {
+  value(value: unknown): unknown {
     if (typeof value === "string") return this.text(value);
     if (Array.isArray(value)) return value.map(item => this.value(item));
     if (!value || typeof value !== "object") return value;
-    const record = value as Record<string, unknown>;
-    if (record.encoding === "base64") {
-      const key = typeof record.body === "string" ? "body" : typeof record.data === "string" ? "data" : null;
-      if (key) {
-        const raw = Buffer.from(record[key] as string, "base64").toString("utf8");
+    if ("encoding" in value && value.encoding === "base64") {
+      const payload = "body" in value && typeof value.body === "string" ? { key: "body", text: value.body }
+        : "data" in value && typeof value.data === "string" ? { key: "data", text: value.data } : undefined;
+      if (payload) {
+        const raw = Buffer.from(payload.text, "base64").toString("utf8");
         if (this.text(raw) !== raw) {
-          return { ...this.value({ ...record, [key]: null }), [key]: "[redacted]", encoding: "utf8", redacted: true };
+          return { ...this.projectRecord({ ...value, [payload.key]: null }),
+            [payload.key]: "[redacted]", encoding: "utf8", redacted: true };
         }
       }
     }
+    return this.projectRecord(value);
+  }
+  private projectRecord(value: object): Record<string, unknown> {
     // 凭据由 remember 登记实际值；字段名也用于审批、计数和笔记内容，不能据此删除业务数据。
-    return Object.fromEntries(Object.entries(record).map(([key, item]) => [this.text(key), this.value(item)]));
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [this.text(key), this.value(item)]));
   }
   /** 仅在 MCP 协议定义的内容位置省略媒体，structuredContent 和资源数据仍按业务值处理。 */
   mcp(value: unknown, method: string): unknown {

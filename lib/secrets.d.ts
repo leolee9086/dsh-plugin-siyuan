@@ -4,7 +4,8 @@ export declare class SecretFilter {
     remember(secret: string): void;
     private replaceKnown;
     text(value: string): string;
-    value(value: unknown): any;
+    value(value: unknown): unknown;
+    private projectRecord;
     /** 仅在 MCP 协议定义的内容位置省略媒体，structuredContent 和资源数据仍按业务值处理。 */
     mcp(value: unknown, method: string): unknown;
     error(error: unknown): Error;

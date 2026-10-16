@@ -18,6 +18,27 @@ export class KernelError extends Error {
   }
 }
 
+/** 明确的 HTTP 访问拒绝；不携带响应正文、状态文本或请求凭据。 */
+export class KernelAccessError extends Error {
+  readonly retryAfterSeconds?: number;
+  constructor(readonly status: 401 | 403 | 429, retryAfter: string | null) {
+    super(status === 401 ? "思源 HTTP 访问未通过认证（401）"
+      : status === 403 ? "思源 HTTP 访问被权限策略拒绝（403）" : "思源 HTTP 访问受到限流（429）");
+    this.name = "KernelAccessError";
+    if (retryAfter) {
+      const seconds = /^\d+$/.test(retryAfter) ? Number(retryAfter) : Math.ceil((Date.parse(retryAfter) - Date.now()) / 1000);
+      if (Number.isSafeInteger(seconds)) this.retryAfterSeconds = Math.max(0, seconds);
+    }
+  }
+  static pauseFor(error: unknown) {
+    if (!(error instanceof KernelAccessError)) return;
+    const reason = error.status === 429 ? "rate-limit" as const : error.status === 403 ? "permission" as const : "authentication" as const;
+    const wait = error.retryAfterSeconds === undefined ? "" : `；Retry-After ${error.retryAfterSeconds} 秒`;
+    return { reason, retryAfterSeconds: error.retryAfterSeconds,
+      message: `${error.message}${wait}；已暂停提醒读取和自动重连，请检查核心认证、权限及代理，更新连接配置后恢复` };
+  }
+}
+
 export function normalizeConfig(raw: unknown): ApiConfig {
   if (raw !== undefined && (raw === null || typeof raw !== "object" || Array.isArray(raw))) {
     throw new TypeError("插件配置必须为对象");
@@ -62,8 +83,11 @@ export async function callKernel<T = unknown>(
 ): Promise<T> {
   const response = await connection.json(endpoint, payload, signal);
   if (!response.ok) {
+    const { status } = response;
+    const retryAfter = response.headers.get("retry-after");
     await response.body?.cancel();
-    throw new Error(`${endpoint} 返回 HTTP ${response.status} ${response.statusText}`);
+    if (status === 401 || status === 403 || status === 429) throw new KernelAccessError(status, retryAfter);
+    throw new Error(`${endpoint} 返回 HTTP ${status} ${response.statusText}`);
   }
   const envelope = await response.json() as Envelope<T>;
   if (!envelope || typeof envelope.code !== "number") throw new Error(`${endpoint} 响应缺少内核 code`);

@@ -16,6 +16,17 @@ export declare class KernelError extends Error {
     readonly code: number;
     constructor(endpoint: string, code: number, message: string);
 }
+/** 明确的 HTTP 访问拒绝；不携带响应正文、状态文本或请求凭据。 */
+export declare class KernelAccessError extends Error {
+    readonly status: 401 | 403 | 429;
+    readonly retryAfterSeconds?: number;
+    constructor(status: 401 | 403 | 429, retryAfter: string | null);
+    static pauseFor(error: unknown): {
+        reason: "rate-limit" | "permission" | "authentication";
+        retryAfterSeconds: number | undefined;
+        message: string;
+    } | undefined;
+}
 export declare function normalizeConfig(raw: unknown): ApiConfig;
 export interface KernelCaller {
     json(endpoint: string, payload: unknown, signal?: AbortSignal): Promise<Response>;

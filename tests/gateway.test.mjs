@@ -16,7 +16,8 @@ function memoryDomain() {
 }
 
 test("全量发布经真实协议运行，复用管理器的授权、目标和活动；发现schema及注册选择可恢复", async t => {
-  const server = await fixture(); t.after(() => server.close());
+  // 全量 schema 编译与本机服务器共享事件循环；保活预算覆盖编译阶段，避免测试受空闲连接过期竞争影响。
+  const server = await fixture({ keepAliveTimeout: 60000 }); t.after(() => server.close());
   const domain = memoryDomain(); const tools = new Map();
   const manager = new KernelManager(domain, {
     async resolve() {}, async describe() { return { configured: false, writable: true }; }, async set() {}, async unset() {},

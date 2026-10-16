@@ -6,6 +6,8 @@ import { PluginRpc } from "./rpc.js";
 import { McpConnections } from "./mcp.js";
 
 export class SiYuanConnection {
+  /** 管理器通过连接聚合入口取得安全分类，不依赖 WS 内部错误实现。 */
+  static pushPause = SocketConnections.pauseFor;
   readonly config: ApiConfig;
   readonly http: HttpConnection;
   readonly ws: SocketConnections;
