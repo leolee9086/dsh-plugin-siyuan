@@ -101,7 +101,7 @@ export declare class KernelManager {
     reminderKernels(): string[];
     /** 插件内部固定读取提醒块；与模型工具的端点审批分开，也不发布到公共服务。 */
     readReminderBlocks(kernelId: string, roots: string[] | undefined, signal: AbortSignal): Promise<unknown[]>;
-    /** Rule sources follow the same session/core selection as ordinary tools. */
+    /** 会话从独立选择的规则核心接收内容，规则自身再筛选适用会话。 */
     acceptsReminder(kernelId: string, sessionId: string): boolean;
     publicState(): Promise<{
         revision: number;
@@ -154,6 +154,7 @@ export declare class KernelManager {
     }>;
     removeKernel(id: string): Promise<void>;
     select(kernelId: string | null, sessionId?: string): Promise<void>;
+    selectRuleSource(kernelId: string | null, sessionId: string): Promise<void>;
     declare(input: Record<string, unknown>): Promise<Endpoint>;
     grant(kernelId: string, endpointKey: string, decision: Decision): Promise<void>;
     /** 候选探针不携带凭据，也不依赖旧 PID 是否仍可连接。 */

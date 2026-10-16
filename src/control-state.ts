@@ -11,6 +11,8 @@ export interface Kernel {
 export interface State {
   revision: number; kernels: Kernel[]; defaultKernelId: string | null;
   grants: Grant[]; endpoints: Endpoint[]; sessions: Record<string, string>;
+  /** 会话规则来源独立于操作目标；旧记录缺省为空，按全局默认核心解析。 */
+  ruleSessions: Record<string, string>;
   gatewayTools?: boolean;
 }
 export interface Activity {
@@ -42,7 +44,7 @@ function validKernel(value: unknown): value is Kernel {
 /** 旧配置允许省略连接默认项；把默认项真正写进副本后才校验完整 State。 */
 function restoreState(value: unknown): unknown {
   if (!isRecord(value) || !isArray(value.kernels)) return value;
-  return { ...value, kernels: value.kernels.map(kernel => {
+  return { ...value, ruleSessions: value.ruleSessions === undefined ? {} : value.ruleSessions, kernels: value.kernels.map(kernel => {
     if (!isRecord(kernel) || kernel.apiUrl != null && kernel.timeoutMs != null) return kernel;
     try {
       const config = normalizeConfig(kernel);
@@ -52,7 +54,7 @@ function restoreState(value: unknown): unknown {
 }
 function validState(value: unknown): value is State {
   if (!isRecord(value) || typeof value.revision !== "number" || !Number.isSafeInteger(value.revision) || value.revision < 1
-    || !isArray(value.kernels) || !isArray(value.grants) || !isArray(value.endpoints) || !isRecord(value.sessions)
+    || !isArray(value.kernels) || !isArray(value.grants) || !isArray(value.endpoints) || !isRecord(value.sessions) || !isRecord(value.ruleSessions)
     || value.gatewayTools !== undefined && typeof value.gatewayTools !== "boolean") return false;
   const ids = new Set<string>();
   for (const kernel of value.kernels) {
@@ -60,7 +62,7 @@ function validState(value: unknown): value is State {
     ids.add(kernel.id);
   }
   return (value.defaultKernelId === null || typeof value.defaultKernelId === "string" && ids.has(value.defaultKernelId))
-    && Object.values(value.sessions).every(id => typeof id === "string" && ids.has(id))
+    && [...Object.values(value.sessions), ...Object.values(value.ruleSessions)].every(id => typeof id === "string" && ids.has(id))
     && value.grants.every(grant => isRecord(grant) && typeof grant.kernelId === "string" && ids.has(grant.kernelId)
       && typeof grant.endpointKey === "string" && EndpointPolicy.decisions.some(decision => decision === grant.decision))
     && value.endpoints.every(item => validEndpoint(item) && (!item.discoveredFor || ids.has(item.discoveredFor)));
@@ -118,12 +120,26 @@ function recoverActivity(item: Activity): Activity {
 function targetId(state: State, explicit: unknown, sessionId?: string): unknown {
   return explicit ?? (sessionId ? state.sessions[sessionId] : undefined) ?? state.defaultKernelId;
 }
-function kernelDirectory(state: State, sessionId?: string) {
+/** 规则来源只继承全局默认核心，不继承会话操作核心。 */
+function ruleTargetId(state: State, sessionId?: string) {
+  return (sessionId ? state.ruleSessions[sessionId] : undefined) ?? state.defaultKernelId;
+}
+function sessionSelection(state: State, sessionId?: string) {
   const sessionKernelId = sessionId === undefined ? null : state.sessions[sessionId] ?? null;
+  const sessionRuleKernelId = sessionId === undefined ? null : state.ruleSessions[sessionId] ?? null;
+  return { sessionKernelId, selectedKernelId: sessionKernelId ?? state.defaultKernelId,
+    sessionRuleKernelId, selectedRuleKernelId: ruleTargetId(state, sessionId) };
+}
+function setSessionKernel(state: State, sessionId: string, kernelId: string | null, purpose: 'operation' | 'rules') {
+  if (!sessionId) throw new Error("请选择会话");
+  if (kernelId !== null) selectKernel(state, kernelId);
+  const selections = purpose === 'operation' ? state.sessions : state.ruleSessions;
+  if (kernelId === null) delete selections[sessionId]; else selections[sessionId] = kernelId;
+}
+function kernelDirectory(state: State, sessionId?: string) {
   return {
     defaultKernelId: state.defaultKernelId,
-    sessionKernelId,
-    selectedKernelId: sessionKernelId ?? state.defaultKernelId,
+    ...sessionSelection(state, sessionId),
     kernels: state.kernels.map(({ id, name, enabled, apiUrl, kernelPid }) => ({ id, name, enabled, apiUrl, kernelPid })),
   };
 }
@@ -171,4 +187,4 @@ function requireRevision(expected: number, current: number, closed: boolean, mes
 
 /** 状态领域唯一入口；宿主适配器和行为测试均通过此入口使用数据规则。 */
 export const ControlState = Object.freeze({ DOMAIN_SPEC, revokeBinding, replaceDiscovered, recoverActivity,
-  targetId, kernelDirectory, selectKernel, bindDiscovered, reconcileBinding, requireBoundKernel, requireRevision });
+  targetId, ruleTargetId, sessionSelection, setSessionKernel, kernelDirectory, selectKernel, bindDiscovered, reconcileBinding, requireBoundKernel, requireRevision });

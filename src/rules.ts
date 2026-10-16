@@ -92,6 +92,7 @@ function attach(service: RuleService, config: Options,
     if (cache.content === content) { cache.pending = undefined; return; }
     try {
       if (cache.handle) cache.handle.replace(source);
+      // 会话选择规则来源核心，context-care 再按规则 scope 过滤会话。
       else cache.handle = service.registerSource(source, { acceptSession: sessionId => accepts(kernelId, sessionId) });
       cache.content = content; cache.pending = undefined;
       for (const error of source.diagnostics ?? []) report(error.id + ': ' + error.message);

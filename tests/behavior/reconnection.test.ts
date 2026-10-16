@@ -4,7 +4,7 @@ import { ControlState, type State } from '../../lib/control-state.js';
 
 function state(): State {
   return { revision: 1, kernels: [{ id: 'local', name: '本机', enabled: true, apiUrl: 'auto', timeoutMs: 3000, kernelPid: 10 }],
-    defaultKernelId: 'local', sessions: { session: 'local' }, endpoints: [],
+    defaultKernelId: 'local', sessions: { session: 'local' }, ruleSessions: {}, endpoints: [],
     grants: [{ kernelId: 'local', endpointKey: 'endpoint', decision: 'allow' }] };
 }
 

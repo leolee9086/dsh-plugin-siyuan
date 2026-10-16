@@ -8,7 +8,7 @@ const activity = ControlState.DOMAIN_SPEC.tables.activity.valueSchema;
 const kernel = { id: "local", name: "本机", enabled: true, apiUrl: "auto", timeoutMs: 15000 };
 const endpoint = EndpointPolicy.endpoint("http", "POST", "/api/block/getBlockKramdown");
 function state(kernels: unknown[] = [kernel]) {
-  return { revision: 1, kernels, defaultKernelId: "local", grants: [], endpoints: [endpoint], sessions: {} };
+  return { revision: 1, kernels, defaultKernelId: "local", grants: [], endpoints: [endpoint], sessions: {}, ruleSessions: {} };
 }
 function row() {
   return { id: "operation", sessionId: "session", callId: "call", time: "2026-10-15T15:30:00Z",

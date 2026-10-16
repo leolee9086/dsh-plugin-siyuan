@@ -144,7 +144,7 @@ export class KernelManager {
       if (config.token) await this.credentials.set(refFor("local"), config.token);
       const { token: _token, ...publicConfig } = config;
       this.#state = { revision: 1, kernels: [{ id: "local", name: "本机思源", enabled: true, ...publicConfig }],
-        defaultKernelId: "local", grants: [], endpoints: [], sessions: {} };
+        defaultKernelId: "local", grants: [], endpoints: [], sessions: {}, ruleSessions: {} };
       await this.#config.put("state", this.#state);
     }
     // 所有核心的秘密同时遮罩，避免某个核心回显另一个核心的配置。
@@ -251,10 +251,10 @@ export class KernelManager {
       throw this.#secrets.error(error);
     } finally { if (connection) await this.release(connection); }
   }
-  /** Rule sources follow the same session/core selection as ordinary tools. */
+  /** 会话从独立选择的规则核心接收内容，规则自身再筛选适用会话。 */
   acceptsReminder(kernelId: string, sessionId: string) {
     return !this.#closed && this.#state.kernels.some(kernel => kernel.id === kernelId && kernel.enabled)
-      && ControlState.targetId(this.#state, undefined, sessionId) === kernelId;
+      && ControlState.ruleTargetId(this.#state, sessionId) === kernelId;
   }
   async publicState() {
     return { revision: this.#state.revision, defaultKernelId: this.#state.defaultKernelId, gateway: this.gatewayState(),
@@ -268,8 +268,7 @@ export class KernelManager {
     const items = [...this.#activity.entries()].map(([, item]) => item).filter(item => item.sessionId === sessionId)
       .sort((a, b) => b.time.localeCompare(a.time));
     return this.#secrets.value({ total: items.length, items: items.slice(offset, offset + limit),
-      sessionId, sessionKernelId: this.#state.sessions[sessionId] ?? null,
-      selectedKernelId: this.#state.sessions[sessionId] ?? this.#state.defaultKernelId });
+      sessionId, ...ControlState.sessionSelection(this.#state, sessionId) });
   }
   async saveKernel(input: Record<string, unknown>) {
     return this.serial(async () => {
@@ -329,7 +328,9 @@ export class KernelManager {
       state.kernels = state.kernels.filter(item => item.id !== id);
       revokeBinding(state, id);
       if (state.defaultKernelId === id) state.defaultKernelId = null;
-      for (const [sessionId, value] of Object.entries(state.sessions)) if (value === id) delete state.sessions[sessionId];
+      for (const selections of [state.sessions, state.ruleSessions]) {
+        for (const [sessionId, value] of Object.entries(selections)) if (value === id) delete selections[sessionId];
+      }
       // 先撤去连接和授权，再清理秘密；清理失败不会让已删除核心继续使用。
       await this.commit(state); await this.credentials.unset(refFor(id));
     });
@@ -338,9 +339,15 @@ export class KernelManager {
     return this.serial(async () => {
       if (kernelId !== null) this.kernel(kernelId);
       const state = structuredClone(this.#state);
-      if (sessionId) {
-        if (kernelId === null) delete state.sessions[sessionId]; else state.sessions[sessionId] = kernelId;
-      } else state.defaultKernelId = kernelId;
+      if (sessionId) ControlState.setSessionKernel(state, sessionId, kernelId, 'operation');
+      else state.defaultKernelId = kernelId;
+      await this.commit(state);
+    });
+  }
+  async selectRuleSource(kernelId: string | null, sessionId: string) {
+    return this.serial(async () => {
+      const state = structuredClone(this.#state);
+      ControlState.setSessionKernel(state, sessionId, kernelId, 'rules');
       await this.commit(state);
     });
   }
@@ -593,7 +600,7 @@ export function managedTools(manager: KernelManager, templates: ReturnType<typeo
     if (!isRecord(properties)) throw new Error(`${tool.name} 参数 schema 缺少 properties 对象`);
     const parameters = { ...tool.parameters, properties: { ...properties,
       ...(tool.name === "siyuan_rpc" ? { action: { type: "string", enum: ["status"] } } : {}),
-      kernelId: { type: "string", description: "明确指定思源核心 ID；省略时使用会话选择或配置的默认核心" } } };
+      kernelId: { type: "string", description: "本次操作的思源核心 ID；省略时使用会话默认操作核心，再回退全局默认核心" } } };
     const validate = ajv.compile<ToolArgs>(parameters);
     manager.defineTool(tool.name, validate);
     const description = tool.name === "siyuan_rpc"
@@ -606,7 +613,7 @@ export function managedTools(manager: KernelManager, templates: ReturnType<typeo
       } };
   });
   const directory = toolDef("siyuan_kernels",
-    "列出所有已配置的思源核心：ID、名称、启用状态、API 地址、绑定 PID、默认核心及当前会话选择。enabled 表示配置启用状态；此工具不探测在线状态。无需参数，返回的 ID 可用于业务工具的 kernelId。",
+    "列出所有已配置的思源核心：ID、名称、启用状态、API 地址、绑定 PID、全局默认核心、会话默认操作核心及会话规则来源核心。sessionKernelId/selectedKernelId 是操作选择，sessionRuleKernelId/selectedRuleKernelId 是规则来源选择；两者未设置均使用全局默认核心。enabled 表示配置启用状态；此工具不探测在线状态。无需参数，返回的 ID 可用于业务工具的 kernelId。",
     { type: "object", properties: {}, additionalProperties: false },
     async (args, _signal, exec) => (await manager.invoke("siyuan_kernels", args, exec)).summary);
   manager.defineTool(directory.name, ajv.compile(directory.parameters));

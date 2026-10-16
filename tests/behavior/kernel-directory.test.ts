@@ -53,6 +53,7 @@ test('核心目录列出启用和停用核心，默认选择与会话覆盖相�
   const output = await directory.execute({}, calling('current-session'));
   const expected = {
     defaultKernelId: 'local', sessionKernelId: other.id, selectedKernelId: other.id,
+    sessionRuleKernelId: null, selectedRuleKernelId: 'local',
     kernels: [
       { id: 'local', name: '本机思源', enabled: true, apiUrl: 'auto', kernelPid: 12345 },
       { id: other.id, name: '远程笔记', enabled: false, apiUrl: 'http://127.0.0.1:1' },
@@ -66,18 +67,38 @@ test('核心目录列出启用和停用核心，默认选择与会话覆盖相�
     decode(await directory.execute({}, calling('new-session'))));
 });
 
+test('规则来源独立于操作选择，修改全局默认后未覆盖的会话随之切换', async t => {
+  const { manager } = await setup(t);
+  const other = await manager.saveKernel({ name: '工作笔记', apiUrl: 'http://127.0.0.1:1', enabled: true });
+  await manager.select(other.id, 'session');
+  assert.equal(manager.acceptsReminder('local', 'session'), true);
+  assert.equal(manager.acceptsReminder(other.id, 'session'), false);
+  await manager.selectRuleSource(other.id, 'session');
+  await manager.select('local', 'session');
+  assert.equal(manager.acceptsReminder(other.id, 'session'), true);
+  assert.equal(manager.acceptsReminder('local', 'session'), false);
+  await manager.selectRuleSource(null, 'session');
+  assert.equal(manager.acceptsReminder('local', 'session'), true);
+  await manager.select(other.id);
+  assert.equal(manager.acceptsReminder(other.id, 'session'), true);
+  assert.equal(manager.acceptsReminder(other.id, 'new-session'), true);
+});
+
 test('无默认核心和空配置均能读取目录，删除核心会清除当前选择', async t => {
   const { manager, directory } = await setup(t);
   await manager.select(null);
   const unselected = decode(await directory.execute({}));
   assert.deepEqual(unselected, {
-    defaultKernelId: null, sessionKernelId: null, selectedKernelId: null,
+    defaultKernelId: null, sessionKernelId: null, selectedKernelId: null, sessionRuleKernelId: null, selectedRuleKernelId: null,
     kernels: [{ id: 'local', name: '本机思源', enabled: true, apiUrl: 'auto', kernelPid: 12345 }],
   });
   await manager.select('local', 'current-session');
+  await manager.selectRuleSource('local', 'current-session');
+  assert.equal(manager.acceptsReminder('local', 'current-session'), true);
   await manager.removeKernel('local');
+  assert.equal(manager.acceptsReminder('local', 'current-session'), false);
   assert.deepEqual(decode(await directory.execute({}, calling('current-session'))), {
-    defaultKernelId: null, sessionKernelId: null, selectedKernelId: null, kernels: [],
+    defaultKernelId: null, sessionKernelId: null, selectedKernelId: null, sessionRuleKernelId: null, selectedRuleKernelId: null, kernels: [],
   });
 });
 
@@ -99,7 +120,7 @@ test('目录只投影公开字段并复用已登记的凭据过滤', async t => 
     apiUrl: 'auto', portFile: join(tmpdir(), 'private-port-file.json') });
   const output = await directory.execute({});
   assert.deepEqual(decode(output), {
-    defaultKernelId: 'local', sessionKernelId: null, selectedKernelId: 'local',
+    defaultKernelId: 'local', sessionKernelId: null, selectedKernelId: 'local', sessionRuleKernelId: null, selectedRuleKernelId: 'local',
     kernels: [{ id: 'local', name: '笔记 [redacted]', enabled: true, apiUrl: 'auto' }],
   });
   for (const privateText of ['directory-fixture-secret', 'DSH_SIYUAN_LOCAL', 'portFile', 'credential', 'timeoutMs']) {

@@ -16,6 +16,8 @@ export interface State {
     grants: Grant[];
     endpoints: Endpoint[];
     sessions: Record<string, string>;
+    /** 会话规则来源独立于操作目标；旧记录缺省为空，按全局默认核心解析。 */
+    ruleSessions: Record<string, string>;
     gatewayTools?: boolean;
 }
 export interface Activity {
@@ -43,10 +45,16 @@ declare function revokeBinding(state: State, kernelId: string): void;
 declare function replaceDiscovered(state: State, kernelId: string, items: unknown): void;
 declare function recoverActivity(item: Activity): Activity;
 declare function targetId(state: State, explicit: unknown, sessionId?: string): unknown;
-declare function kernelDirectory(state: State, sessionId?: string): {
-    defaultKernelId: string | null;
+/** 规则来源只继承全局默认核心，不继承会话操作核心。 */
+declare function ruleTargetId(state: State, sessionId?: string): string | null;
+declare function sessionSelection(state: State, sessionId?: string): {
     sessionKernelId: string | null;
     selectedKernelId: string | null;
+    sessionRuleKernelId: string | null;
+    selectedRuleKernelId: string | null;
+};
+declare function setSessionKernel(state: State, sessionId: string, kernelId: string | null, purpose: 'operation' | 'rules'): void;
+declare function kernelDirectory(state: State, sessionId?: string): {
     kernels: {
         id: string;
         name: string;
@@ -54,6 +62,11 @@ declare function kernelDirectory(state: State, sessionId?: string): {
         apiUrl: string;
         kernelPid: number | undefined;
     }[];
+    sessionKernelId: string | null;
+    selectedKernelId: string | null;
+    sessionRuleKernelId: string | null;
+    selectedRuleKernelId: string | null;
+    defaultKernelId: string | null;
 };
 declare function selectKernel(state: State, explicit: unknown, sessionId?: string): Kernel;
 /** 首次发现只接受唯一实例；已绑定配置和重新指定地址的撤权由各自入口处理。 */
@@ -85,6 +98,9 @@ export declare const ControlState: Readonly<{
     replaceDiscovered: typeof replaceDiscovered;
     recoverActivity: typeof recoverActivity;
     targetId: typeof targetId;
+    ruleTargetId: typeof ruleTargetId;
+    sessionSelection: typeof sessionSelection;
+    setSessionKernel: typeof setSessionKernel;
     kernelDirectory: typeof kernelDirectory;
     selectKernel: typeof selectKernel;
     bindDiscovered: typeof bindDiscovered;

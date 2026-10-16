@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-siyuan",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "思源连接管理与 DSH 工具箱协同：核心目录、五个业务工具、697条 HTTP 契约、MCP 工具发现与逐端点授权",
   "author": "leolee9086",
   "repository": {
@@ -41,6 +41,7 @@
     "cordis.patch.yml",
     "README.md",
     "CHANGELOG.md",
+    "docs/规则编写教程.md",
     "LICENSE"
   ],
   "scripts": {
@@ -63,7 +64,7 @@
     "@deepseek-ai/dsh-user-approval": "0.2.0-rc.2",
     "@types/node": "^26.6.5",
     "@types/ws": "^8.18.2",
-    "dsh-context-care": "github:leolee9086/dsh-context-care#v0.11.0",
+    "dsh-context-care": "github:leolee9086/dsh-context-care#v0.12.0",
     "jsdom": "^30.1.2",
     "react": "18.3.1",
     "react-dom": "18.3.1",

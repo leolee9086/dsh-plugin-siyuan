@@ -52,7 +52,7 @@ test('callouts preserve output scopes, shared quotas and structured failure cond
 // These are source facilities, not a fabricated Host context. SQL is exercised separately against SiYuan.
 function fixture(initial, options = {}) {
   const registered = new Map(), policies = new Map(), errors = [], calls = [];
-  const state = { rows: initial, kernels: ['local'], selected: 'local', offline: false, writes: 0, cap: 0, validations: 0, gate: undefined };
+  const state = { rows: initial, kernels: ['local'], offline: false, writes: 0, cap: 0, validations: 0, gate: undefined };
   const accept = source => {
     if (state.cap && source.rules.length > state.cap) throw Object.assign(new Error('capacity'), { code: 'reminder-capacity-exceeded' });
     state.writes++; registered.set(source.sourceId, source);
@@ -72,7 +72,7 @@ function fixture(initial, options = {}) {
     const rows = state.rows.filter(row => row.type === 'callout' && row.subtype === 'DSH-REMINDER' && (!roots || roots.includes(row.root_id)))
       .sort((a, b) => a.id.localeCompare(b.id));
     return rows;
-  }, message => errors.push(message), () => state.kernels, kernel => kernel === state.selected, listener => {
+  }, message => errors.push(message), () => state.kernels, kernelId => state.kernels.includes(kernelId), listener => {
     notify = listener; listener({ kind: 'ready', kernelId: 'local' }); return async () => {};
   });
   return { state, registered, policies, errors, calls, sources, notify: event => notify({ kernelId: 'local', ...event }) };
@@ -103,12 +103,14 @@ test('a malformed owned block keeps valid siblings; disconnect and disabled core
     await f.sources.refresh();
     assert.equal(f.registered.get('siyuan:local:reminders').rules.length, 1);
     assert.match(f.errors[0], /20251211093952-abcdefg/);
+    // 领域端口决定来源资格；会话操作核心不参与来源发现。
     assert.equal(f.policies.get('siyuan:local:reminders').acceptSession('session'), true);
-    f.state.selected = 'another';
-    assert.equal(f.policies.get('siyuan:local:reminders').acceptSession('session'), false);
+    assert.equal(f.policies.get('siyuan:local:reminders').acceptSession('another-session'), true);
     f.state.offline = true; await f.sources.refresh(); assert.equal(f.registered.size, 0);
     f.state.offline = false; await f.sources.refresh(); assert.equal(f.registered.size, 1);
-    f.state.kernels = []; await f.sources.refresh(); assert.equal(f.registered.size, 0);
+    f.state.kernels = [];
+    assert.equal(f.policies.get('siyuan:local:reminders').acceptSession('session'), false);
+    await f.sources.refresh(); assert.equal(f.registered.size, 0);
   } finally { await f.sources.dispose(); }
 });
 

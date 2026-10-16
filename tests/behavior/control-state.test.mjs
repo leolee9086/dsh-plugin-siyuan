@@ -5,7 +5,7 @@ import { EndpointPolicy } from "../../lib/policy.js";
 
 function state() {
   return { revision: 1, kernels: ["local", "other"].map(id => ({ id, name: id, enabled: true, apiUrl: "http://127.0.0.1:6806", timeoutMs: 15000 })),
-    defaultKernelId: "local", sessions: { "session-1": "other" }, grants: [], endpoints: [] };
+    defaultKernelId: "local", sessions: { "session-1": "other" }, ruleSessions: {}, grants: [], endpoints: [] };
 }
 const discovered = (kernelId, name) => ({ ...EndpointPolicy.endpoint("mcp", "tools/call", "", name), discoveredFor: kernelId });
 const grant = (item, kernelId = "local") => ({ kernelId, endpointKey: item.key, decision: "allow" });
