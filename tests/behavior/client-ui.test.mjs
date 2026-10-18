@@ -68,7 +68,7 @@ test("端点面板用 props 展示搜索过滤、分页和授权确认目标", (
   const markup = render(ui.EndpointPanel, { state: config, kernelId: "local", busy: false,
     filter: { query: "notebook", protocol: "http", method: "POST", decision: "deny", offset: 0 },
     catalog: { total: 698, offset: 0, limit: 40, items: [item] }, pending: { kernelId: "local", item, decision: "ask" } });
-  for (const text of ["搜索端点", "过滤协议", "过滤方法", "过滤授权状态", "下一页", "698", "/api/notebook/lsNotebooks", "每次询问，完全权限下拒绝（默认）", "每次询问，完全权限下授权", "本机思源"]) assert.ok(markup.includes(text), text);
+  for (const text of ["搜索端点", "过滤协议", "过滤方法", "过滤授权状态", "下一页", "698", "/api/notebook/lsNotebooks", "每次询问，完全权限下拒绝", "每次询问，完全权限下授权（默认）", "本机思源"]) assert.ok(markup.includes(text), text);
 });
 
 test("活动展示明确的会话与页码，旧会话或旧页数据不进入视图", () => {

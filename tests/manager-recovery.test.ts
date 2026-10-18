@@ -54,7 +54,7 @@ test('管理器恢复退出PID、持久保存新绑定并支持候选列表显�
   await stop();
   await manager.inspectConnection('local');
   assert.equal((await manager.publicState()).kernels[0]!.kernelPid, process.pid);
-  assert.equal(manager.endpoints('local', { query: '/api/query/sql' }).items[0]!.decision, 'ask');
+  assert.equal(manager.endpoints('local', { query: '/api/query/sql' }).items[0]!.decision, 'ask-full-access');
   await assert.rejects(manager.selectInstance('local', child.pid), /不是当前有效/);
   await manager.selectInstance('local', process.pid);
   const restored = create(); t.after(() => restored.close()); await restored.initialize({});

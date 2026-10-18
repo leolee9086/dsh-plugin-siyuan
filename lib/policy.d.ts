@@ -2,7 +2,7 @@
 import type { ToolArgs } from "./tool.js";
 declare const decisions: readonly ["deny", "ask", "ask-full-access", "allow"];
 export type Decision = typeof decisions[number];
-/** 缺省端点每次询问，完全权限下拒绝；显式设置只作用于所属核心和端点。 */
+/** 缺省端点每次询问，完全权限下自动允许；显式设置只作用于所属核心和端点。 */
 declare function decisionFor(grants: Grant[], kernelId: string, endpointKey: string): Decision;
 /** 两种询问策略在完全权限下分别决定，其他模式交给宿主审批。 */
 declare function approvalRoute(decision: Decision, mode: string | undefined): "unavailable" | "request" | "full-access-allowed" | "full-access-denied";
@@ -63,7 +63,7 @@ declare function authorize(items: Endpoint[], grants: Grant[], kernelId: string,
 /** 授权领域的唯一入口，内部识别和筛选实现不向外单独暴露。 */
 export declare const EndpointPolicy: Readonly<{
     decisions: readonly ["deny", "ask", "ask-full-access", "allow"];
-    defaultDecision: "ask";
+    defaultDecision: "ask-full-access";
     decisionFor: typeof decisionFor;
     approvalRoute: typeof approvalRoute;
     endpoint: typeof endpoint;

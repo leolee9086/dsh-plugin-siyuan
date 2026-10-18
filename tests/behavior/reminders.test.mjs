@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ReminderSources } from '../../lib/rules.js';
 const id = '20251211093951-xtkv05z';
-const markdown = '> [!DSH-REMINDER] 类型约定\n>\n> ```dsh-rule\n> format: reminder/v1\n> id: no-any\n> on: tool.succeeded\n> when:\n>   tool: read\n>   arguments:\n>     file_path:\n>       regex: \'\\.ts$\'\n> deliver:\n>   model:\n>     once: surface\n> ```\n>\n> 禁止使用 any。';
+const markdown = '> [!DSH-REMINDER] 类型约定\n>\n> ```dsh-rule\n> format: reminder/v4\n> id: no-any\n> on: tool.succeeded\n> when:\n>   tool: read\n>   arguments:\n>     file_path:\n>       regex: \'\\.ts$\'\n> effect:\n>   kind: remind\n>   deliver:\n>     model:\n>       once: surface\n> ```\n>\n> 禁止使用 any。';
 const block = { id, root_id: '20251211093950-abcdefg', type: 'callout', subtype: 'DSH-REMINDER', markdown };
 
 test('reminder namespace yields a readable declaration and excludes other consumers', () => {
@@ -23,24 +23,40 @@ test('owned callouts report missing declarations and duplicate YAML keys', () =>
   assert.throws(() => ReminderSources.options({ reminders: { roots: [] } }), /未知/);
 });
 
-test('request reminders retain v2 time windows and human-presence declarations', () => {
-  const declaration = { format: 'reminder/v2', id: 'night', on: 'request.before',
+test('reminder text drops SiYuan bookkeeping markers, inline ones included', () => {
+  const marked = [
+    ['standalone', '> {: id="20261013174959-8qv2ihu" updated="20261014120239"}'],
+    ['inline after a list marker', '- {: id="20261013174959-r3ilf1z" updated="20261013174959"}读实时接口'],
+    ['inline mid-sentence', '先看 {: id="20261013174959-mid0001" updated="20261013174959"}实时接口'],
+  ];
+  for (const [label, line] of marked) {
+    const parsed = ReminderSources.parseCallout({ ...block, markdown: `${markdown.replace('禁止使用 any。', '')}\n> ${line}` });
+    assert.doesNotMatch(parsed.text, /\{:/, label);
+    assert.doesNotMatch(parsed.text, /20261013174959-/, label);
+  }
+  // Ordinary braces in the author's own prose survive.
+  const braces = ReminderSources.parseCallout({ ...block, markdown: markdown.replace('禁止使用 any。', '保留 {普通} 大括号。') });
+  assert.match(braces.text, /\{普通\}/);
+});
+
+test('request reminders retain time windows and human-presence declarations', () => {
+  const declaration = { format: 'reminder/v4', id: 'night', on: 'request.before',
     when: { timeWindow: { start: '23:00', end: '06:00', timeZone: 'local' }, humanActivity: { withinSeconds: 300 } },
-    deliver: { model: { once: 'window' } } };
+    effect: { kind: 'remind', deliver: { model: { once: 'window' } } } };
   const markdown = `[!DSH-REMINDER] 晚间休息\n\n\`\`\`dsh-rule\n${JSON.stringify(declaration)}\n\`\`\`\n没有紧急任务时温和建议伙伴早点休息。`;
   const parsed = ReminderSources.parseCallout({ ...block, markdown });
   assert.deepEqual(parsed, { ...declaration, id: `${id}:night`, title: '晚间休息', text: '没有紧急任务时温和建议伙伴早点休息。' });
-  assert.throws(() => ReminderSources.parseCallout({ ...block, markdown: markdown.replace('reminder/v2', 'reminder/v99') }), /format/);
+  assert.throws(() => ReminderSources.parseCallout({ ...block, markdown: markdown.replace('reminder/v4', 'reminder/v99') }), /format/);
 });
 
 test('callouts preserve output scopes, shared quotas and structured failure conditions', () => {
   const declarations = [
-    { format: 'reminder/v3', id: 'output', on: 'assistant.output',
+    { format: 'reminder/v4', id: 'output', on: 'assistant.output',
       scope: { sessionIds: ['one', 'two'], agentPresets: ['writing'] },
       when: { blockTypes: ['text', 'reasoning'], pattern: { kind: 'literal', text: '完成' } },
-      deliver: { model: { once: 'surface', interrupt: 'abort-resume', shared: { reset: 'lifetime', lifetime: 'campaign', limit: 2 } } } },
-    { format: 'reminder/v1', id: 'timeout', on: 'tool.failed', when: { tool: 'pwsh', error: { code: 'TOOL_TIMEOUT' } },
-      deliver: { model: { once: 'surface' } } },
+      effect: { kind: 'remind', deliver: { model: { once: 'surface', interrupt: 'abort-resume', shared: { reset: 'lifetime', lifetime: 'campaign', limit: 2 } } } } },
+    { format: 'reminder/v4', id: 'timeout', on: 'tool.failed', when: { tool: 'pwsh', error: { code: 'TOOL_TIMEOUT' } },
+      effect: { kind: 'remind', deliver: { model: { once: 'surface' } } } },
   ];
   for (const declaration of declarations) {
     const markdown = `[!DSH-REMINDER] 提醒\n\n\`\`\`dsh-rule\n${JSON.stringify(declaration)}\n\`\`\`\n核对结果。`;

@@ -46,7 +46,7 @@ test('internal snapshots and shared WS work under tool denial while model invoke
       { channel: 'http', method: 'POST', path: '/api/sqlite/flushTransaction', body: {} },
       { channel: 'ws', path: '/ws', messages: [] },
     ];
-    assert.ok(endpoints.every(endpoint => endpoint.decision === 'ask'));
+    assert.ok(endpoints.every(endpoint => endpoint.decision === 'ask-full-access'));
     assert.deepEqual(await snapshot(manager), [row]);
     // 工具调用没有审批答复时不得发送请求，内部快照不会替它授予权限。
     const requests = server.requests.length;

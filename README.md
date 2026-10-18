@@ -34,12 +34,12 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务；两种询�
 
 | 配置 | 普通权限下 | 完全权限下 |
 | --- | --- | --- |
-| 每次询问，完全权限下拒绝（默认，`ask`） | 请求宿主批准 | 自动拒绝 |
-| 每次询问，完全权限下授权（`ask-full-access`） | 请求宿主批准 | 自动通过 |
+| 每次询问，完全权限下拒绝（`ask`） | 请求宿主批准 | 自动拒绝 |
+| 每次询问，完全权限下授权（默认，`ask-full-access`） | 请求宿主批准 | 自动通过 |
 | 拒绝（`deny`） | 拒绝 | 拒绝 |
 | 允许（`allow`） | 直接通过 | 直接通过 |
 
-未配置、首次发现、重新绑定或声明的新端点默认使用 `ask`。升级保留已经显式保存的 `deny`、`ask` 和 `allow`。完全权限按宿主 `sandboxPolicy` 返回的实际会话模式判断；询问通过 `approval.request()` 请求一次性批准。无会话、无法取得模式或需要询问但审批不可用时停止执行；宿主 `never` 策略自动拒绝询问。批准期间配置改变也会停止派发。活动栏记录选定的端点配置，并区分完全权限自动拒绝、完全权限自动通过、直接允许、宿主批准、拒绝、取消和审批不可用。
+未配置、首次发现、重新绑定或声明的新端点默认使用 `ask-full-access`。升级保留已经显式保存的 `deny`、`ask`、`ask-full-access` 和 `allow`。完全权限按宿主 `sandboxPolicy` 返回的实际会话模式判断；询问通过 `approval.request()` 请求一次性批准。无会话、无法取得模式或需要询问但审批不可用时停止执行；宿主 `never` 策略自动拒绝询问。批准期间配置改变也会停止派发。活动栏记录选定的端点配置，并区分完全权限自动拒绝、完全权限自动通过、直接允许、宿主批准、拒绝、取消和审批不可用。
 
 授权键分别为：
 
@@ -72,7 +72,7 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务；两种询�
 > 禁止使用 `any`。类型暂不明确时使用 `unknown`，再缩小类型范围。
 >
 > ```dsh-rule
-> format: reminder/v1
+> format: reminder/v4
 > id: typescript-no-any
 > on: tool.succeeded
 > when:
@@ -81,9 +81,11 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务；两种询�
 >     file_path:
 >       regex: '\.ts$'
 >       flags: i
-> deliver:
->   model:
->     once: surface
+> effect:
+>   kind: remind
+>   deliver:
+>     model:
+>       once: surface
 > ```
 ````
 

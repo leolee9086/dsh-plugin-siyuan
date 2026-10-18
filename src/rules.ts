@@ -29,6 +29,8 @@ function options(raw: unknown): Options {
   return { refreshMs: bounded(config.refreshMs, 30000, 1000, 3600000) };
 }
 
+/** The runtime's only public rule format. Older spellings are not translated. */
+const FORMAT = 'reminder/v4';
 /** Parse only the reminder service's native callouts, then read their dsh-rule declaration.
  * The registered rule identity includes the block id; renaming its heading never changes identity. */
 function parseCallout(value: unknown) {
@@ -45,11 +47,14 @@ function parseCallout(value: unknown) {
   const document = parseDocument(lines.slice(start + 1, end).join('\n'), { uniqueKeys: true, version: '1.2' });
   if (document.errors.length) throw new Error(document.errors.map(error => error.message).join('; '));
   const declaration = object(document.toJS({ maxAliasCount: 0 }));
-  if (!['reminder/v1', 'reminder/v2', 'reminder/v3'].includes(String(declaration.format))) throw new Error('format 必须为 reminder/v1、reminder/v2 或 reminder/v3');
+  if (declaration.format !== FORMAT) throw new Error(`format 必须为 ${FORMAT}`);
   const localId = declaration.id ?? 'reminder';
   if (typeof localId !== 'string' || !localId || localId.length > 128) throw new Error('规则 id 应为1—128字符');
+  // SiYuan appends an inline IAL marker to a child block's own line as well as emitting
+  // standalone ones; both are bookkeeping, not reminder text, so both are removed.
   const text = [...lines.slice(1, start), ...lines.slice(end + 1)]
-    .filter(line => !/^\s*\{:\s.*\}\s*$/.test(line)).join('\n').trim();
+    .filter(line => !/^\s*\{:\s.*\}\s*$/.test(line))
+    .map(line => line.replace(/\{:\s[^}]*\}/g, '').trimEnd()).join('\n').trim();
   if (!text || text.length > 16384) throw new Error('提醒正文应为1—16384字符');
   const title = lines[0].replace(/^\[!DSH-REMINDER\]\s*/, '') || localId;
   return { ...declaration, id: `${block.id}:${localId}`, title, text };

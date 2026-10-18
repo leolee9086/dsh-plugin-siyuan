@@ -3,5 +3,5 @@
   "root_id": "20261013141937-mhe4hfu",
   "type": "callout",
   "subtype": "DSH-REMINDER",
-  "markdown": "> [!DSH-REMINDER] 💡 TypeScript 类型约定\n> 读取 TypeScript 文件后，请保持明确的类型约束，禁止使用 `any`。类型暂不明确时使用 `unknown`，再通过检查缩小类型范围。\n>\n> ```dsh-rule\n> format: reminder/v1\n> id: typescript-no-any\n> on: tool.succeeded\n> when:\n>   tool: read\n>   arguments:\n>     file_path:\n>       regex: '\\.ts$'\n>       flags: i\n> deliver:\n>   model:\n>     once: surface\n> ```"
+  "markdown": "> [!DSH-REMINDER] 💡 TypeScript 类型约定\n> 读取 TypeScript 文件后，请保持明确的类型约束，禁止使用 `any`。类型暂不明确时使用 `unknown`，再通过检查缩小类型范围。\n>\n> ```dsh-rule\n> format: reminder/v4\n> id: typescript-no-any\n> on: tool.succeeded\n> when:\n>   tool: read\n>   arguments:\n>     file_path:\n>       regex: '\\.ts$'\n>       flags: i\n> effect:\n>   kind: remind\n>   deliver:\n>   model:\n>     once: surface\n> ```"
 }

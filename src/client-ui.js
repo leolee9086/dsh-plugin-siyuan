@@ -1,7 +1,7 @@
 /** 界面领域入口：组件以明确 props 渲染，网络操作由客户端适配器注入。 */
 export function createClientUI(React, { get, post, icon }) {
   const h = React.createElement;
-  const labels = { ask: "每次询问，完全权限下拒绝（默认）", "ask-full-access": "每次询问，完全权限下授权", deny: "拒绝", allow: "允许" };
+  const labels = { ask: "每次询问，完全权限下拒绝", "ask-full-access": "每次询问，完全权限下授权（默认）", deny: "拒绝", allow: "允许" };
   const states = { checking: "检查中", "awaiting-approval": "等待批准", running: "执行中", succeeded: "成功",
     failed: "失败", partial: "部分失败", denied: "拒绝", uncertain: "结果不确定", sent: "已发送" };
   const approvalLabels = { "endpoint-allowed": "端点允许 · 自动通过", "endpoint-denied": "端点配置 · 拒绝", pending: "待评估询问策略",

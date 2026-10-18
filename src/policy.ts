@@ -3,8 +3,8 @@ import type { ToolArgs } from "./tool.js";
 
 const decisions = ["deny", "ask", "ask-full-access", "allow"] as const;
 export type Decision = typeof decisions[number];
-const defaultDecision = "ask";
-/** 缺省端点每次询问，完全权限下拒绝；显式设置只作用于所属核心和端点。 */
+const defaultDecision = "ask-full-access";
+/** 缺省端点每次询问，完全权限下自动允许；显式设置只作用于所属核心和端点。 */
 function decisionFor(grants: Grant[], kernelId: string, endpointKey: string): Decision {
   return grants.find(g => g.kernelId === kernelId && g.endpointKey === endpointKey)?.decision ?? defaultDecision;
 }
