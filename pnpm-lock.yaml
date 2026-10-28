@@ -23,9 +23,6 @@ importers:
       ws:
         specifier: ^8.22.0
         version: 8.22.0
-      yaml:
-        specifier: ^2.9.1
-        version: 2.9.1
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -64,8 +61,8 @@ importers:
         specifier: ^8.18.2
         version: 8.18.2
       dsh-context-care:
-        specifier: github:leolee9086/dsh-context-care#v0.12.0
-        version: https://codeload.github.com/leolee9086/dsh-context-care/tar.gz/70fd8e195da1d9892cd4c80400cf90bd040cfdce
+        specifier: https://github.com/leolee9086/dsh-context-care/releases/download/v0.14.18/dsh-context-care-0.14.18.tgz
+        version: https://github.com/leolee9086/dsh-context-care/releases/download/v0.14.18/dsh-context-care-0.14.18.tgz
       jsdom:
         specifier: ^30.1.2
         version: 30.1.2
@@ -320,8 +317,8 @@ packages:
     peerDependencies:
       hono: ^4 || ^5.0.0-0
 
-  '@leolee9086/dsh-rule-engine@0.3.0':
-    resolution: {integrity: sha512-VoPIZKxHjapSw66Fg45w6F06Uqg2nDv4eJ7loIO38JvyJw7bzcrfxS1+dtb/jWxDaoP7MQGRvKTEXtMpeweftA==}
+  '@leolee9086/dsh-rule-engine@0.8.0':
+    resolution: {integrity: sha512-9P/bzoDPhvDIL/TYpPlpu+jfX6NP8knkXLByJKbQmyYRa/8uCjQodQqwx15wJ9DgMZZeOvnuoJXWOCwK0908/g==}
 
   '@leolee9086/dsh-session-blocks@0.1.0':
     resolution: {integrity: sha512-weUQ6Mx6oCT/d6wI8CmvrorODp9WAuzy8FwqWW0V3xrbt74SioLVBB48yu/3ZxTg3ZP172ZwFAHbNmovitNDuw==}
@@ -481,9 +478,9 @@ packages:
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
 
-  dsh-context-care@https://codeload.github.com/leolee9086/dsh-context-care/tar.gz/70fd8e195da1d9892cd4c80400cf90bd040cfdce:
-    resolution: {gitHosted: true, integrity: sha512-/efZVtJICCvPNlcdJcLnQm0TLbNLQjPL2QwFFmyOTnL7k0Yr5GoAT4T0Pk8aMTJ6vz9mcCbOzdveyajkJJvgyQ==, tarball: https://codeload.github.com/leolee9086/dsh-context-care/tar.gz/70fd8e195da1d9892cd4c80400cf90bd040cfdce}
-    version: 0.12.0
+  dsh-context-care@https://github.com/leolee9086/dsh-context-care/releases/download/v0.14.18/dsh-context-care-0.14.18.tgz:
+    resolution: {integrity: sha512-gYTzeGVJZW0bfK84dqVoXTHF7KitkY6u7nmhNVU8bbSSFooKzrikNXASaQ68ZNcmGzrtKcaAQurG2q+sadiAew==, tarball: https://github.com/leolee9086/dsh-context-care/releases/download/v0.14.18/dsh-context-care-0.14.18.tgz}
+    version: 0.14.18
     engines: {node: '>=22.19.0'}
 
   dunder-proto@1.0.1:
@@ -1246,7 +1243,15 @@ snapshots:
     dependencies:
       hono: 4.13.13
 
-  '@leolee9086/dsh-rule-engine@0.3.0': {}
+  '@leolee9086/dsh-rule-engine@0.8.0':
+    dependencies:
+      ajv: 8.20.0
+      handlebars: 4.7.10
+      mdast-util-from-markdown: 2.1.0
+      yaml: 2.9.1
+      zod: 4.6.7
+    transitivePeerDependencies:
+      - supports-color
 
   '@leolee9086/dsh-session-blocks@0.1.0': {}
 
@@ -1421,13 +1426,10 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  dsh-context-care@https://codeload.github.com/leolee9086/dsh-context-care/tar.gz/70fd8e195da1d9892cd4c80400cf90bd040cfdce:
+  dsh-context-care@https://github.com/leolee9086/dsh-context-care/releases/download/v0.14.18/dsh-context-care-0.14.18.tgz:
     dependencies:
-      '@leolee9086/dsh-rule-engine': 0.3.0
+      '@leolee9086/dsh-rule-engine': 0.8.0
       '@leolee9086/dsh-session-blocks': 0.1.0
-      ajv: 8.20.0
-      handlebars: 4.7.10
-      mdast-util-from-markdown: 2.1.0
       react: 18.3.1
       zod: 4.6.7
     transitivePeerDependencies:

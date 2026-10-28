@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-siyuan",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "思源连接管理与 DSH 工具箱协同：核心目录、五个业务工具、697条 HTTP 契约、MCP 工具发现与逐端点授权",
   "author": "leolee9086",
   "repository": {
@@ -49,7 +49,8 @@
     "test": "pnpm run test:behavior && pnpm run test:protocol",
     "test:behavior": "tsc -p tsconfig.tests.json && node --test tests/behavior/*.test.mjs tests/behavior/*.test.ts",
     "test:protocol": "node --test tests/*.test.mjs tests/*.test.ts",
-    "check": "pnpm run build && pnpm test",
+    "test:documents": "node tests/reminder-document-contract.mjs",
+    "check": "pnpm run build && pnpm test && pnpm run test:documents",
     "release:pack": "pnpm run check && pnpm pack --pack-destination releases"
   },
   "devDependencies": {
@@ -64,7 +65,7 @@
     "@deepseek-ai/dsh-user-approval": "0.2.0-rc.2",
     "@types/node": "^26.6.5",
     "@types/ws": "^8.18.2",
-    "dsh-context-care": "github:leolee9086/dsh-context-care#v0.12.0",
+    "dsh-context-care": "https://github.com/leolee9086/dsh-context-care/releases/download/v0.14.18/dsh-context-care-0.14.18.tgz",
     "jsdom": "^30.1.2",
     "react": "18.3.1",
     "react-dom": "18.3.1",
@@ -90,7 +91,6 @@
     "ajv": "^8.20.0",
     "json-rpc-2.0": "^1.8.1",
     "ws": "^8.22.0",
-    "yaml": "^2.9.1",
     "zod": "^4.6.7"
   }
 }

@@ -1,26 +1,26 @@
+import { z } from 'zod';
 import type { ReminderService } from 'dsh-context-care/reminders';
 import type { ReminderWatch } from './push.js';
-type RuleService = Pick<ReminderService, 'registerSource' | 'validateRule'>;
-interface Options {
-    refreshMs: number;
-}
-declare function options(raw: unknown): Options;
-/** Parse only the reminder service's native callouts, then read their dsh-rule declaration.
- * The registered rule identity includes the block id; renaming its heading never changes identity. */
-declare function parseCallout(value: unknown): {
+declare const Options: z.ZodObject<{
+    refreshMs: z.ZodDefault<z.ZodNumber>;
+}, z.core.$strict>;
+/** 接收内核标准 Markdown，只移除 callout 容器；正文和代码字面量保持原样交给引擎。 */
+declare function documents(input: unknown): {
     id: string;
+    rootId: string;
     title: string;
     text: string;
-} | undefined;
-/** 订阅负责失效，快照负责内容；计时器只重试失败读取和被容量拒绝的候选。 */
-declare function attach(service: RuleService, config: Options, readBlocks: (kernelId: string, roots: string[] | undefined, signal: AbortSignal) => Promise<unknown[]>, report: (message: string) => void, kernels: () => string[], accepts: (kernelId: string, sessionId: string) => boolean, watch: ReminderWatch): {
+}[];
+declare function options(raw: unknown): {
+    refreshMs: number;
+};
+declare function attach(service: Pick<ReminderService, 'connectDocuments'>, config: z.infer<typeof Options>, readBlocks: (kernelId: string, roots: string[] | undefined, signal: AbortSignal) => Promise<unknown[]>, report: (message: string) => void, kernels: () => string[], accepts: (kernelId: string, sessionId: string) => boolean, watch: ReminderWatch): {
     refresh: () => Promise<void>;
     dispose(): Promise<void>;
 };
-/** Aggregate entry: parsing and source lifecycle share one public import. */
 export declare const ReminderSources: {
     options: typeof options;
-    parseCallout: typeof parseCallout;
+    documents: typeof documents;
     attach: typeof attach;
 };
 export {};

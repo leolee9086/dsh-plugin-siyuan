@@ -11,9 +11,9 @@ export const notebookId = "20261011180000-abcdefg";
 export const docId = "20261011180001-abcdefg";
 export const blockId = "20261011180002-abcdefg";
 
-export async function fixture({ version = "3.8.6", beforeVersion, beforeFlush, keepAliveTimeout = 5000 } = {}) {
+export async function fixture({ version = "3.8.6", beforeVersion, beforeFlush, beforeMarkdown, keepAliveTimeout = 5000 } = {}) {
   const requests = [];
-  const data = { document: undefined, block: undefined, deleted: [], notifications: [], mcpDeleted: 0, reminderBlocks: undefined, flushResult: undefined };
+  const data = { document: undefined, block: undefined, deleted: [], notifications: [], mcpDeleted: 0, reminderBlocks: undefined, reminderMarkdown: new Map(), flushResult: undefined };
   const transports = new Map();
   const ws = new WebSocketServer({ noServer: true });
   const rpcResponse = request => {
@@ -74,11 +74,17 @@ export async function fixture({ version = "3.8.6", beforeVersion, beforeFlush, k
         case "/api/block/updateBlock": data.block = payload; kernel(transaction); return;
         case "/api/block/getBlockKramdown": kernel({ id: payload.id, kramdown: data.block?.data ?? data.document?.markdown }); return;
         case "/api/block/getChildBlocks": kernel([{ id: blockId }]); return;
+        case "/api/export/exportMdContent": {
+          await beforeMarkdown?.();
+          const content = data.reminderMarkdown.get(payload.id);
+          const prefix = (payload.yfm === false ? "" : "---\ntitle: Fixture\n---\n") + (payload.addTitle === false ? "" : "# Fixture\n\n");
+          kernel({ hPath: "/Fixture", content: typeof content === "string" ? prefix + content : content }); return;
+        }
         case "/api/sqlite/flushTransaction": await beforeFlush?.(); json(data.flushResult ?? { code: 0, msg: "", data: null }); return;
         case "/api/query/sql": {
           if (data.reminderBlocks && payload.stmt.includes("type='callout' AND subtype='DSH-REMINDER'")) {
             const roots = payload.stmt.match(/root_id IN \(([^)]+)\)/)?.[1].split(',').map(value => value.slice(1, -1));
-            kernel(data.reminderBlocks.filter(block => !roots || roots.includes(block.root_id))); return;
+            kernel(data.reminderBlocks.filter(block => !roots || roots.includes(block.root_id)).map(({ markdown, ...block }) => block)); return;
           }
           kernel([{ id: docId, content: data.document?.path }]); return;
         }

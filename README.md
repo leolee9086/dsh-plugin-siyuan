@@ -2,7 +2,7 @@
 
 思源笔记的 DSH 插件：检索笔记、创建与修改内容，多核心连接配置、逐端点授权和会话活动记录。提供五个业务工具及一个核心目录工具，并可将 697 条 HTTP 契约按用途整理为 663 个工具，与发现的 MCP 工具一起注册到工具箱，按会话选择开启。
 
-DSH 思源对接插件 **0.7.0** 配合 context-care 0.12.0，分别选择会话默认操作核心与会话规则来源核心，未选择时均继承全局默认核心。提醒可按当前预设名称、模型等条件筛选接收者，并保留跨会话共享次数。`siyuan_kernels` 返回两类选择及其有效值，详情见 [更新日志](./CHANGELOG.md)。
+DSH 思源对接插件 **0.8.1** 配合 context-care 0.14.18，分别选择会话默认操作核心与会话规则来源核心，未选择时均继承全局默认核心。提醒使用规则引擎共同的 `schemaVersion: 2` 声明，可按当前预设名称、模型等条件筛选接收者，并保留跨会话共享次数。`siyuan_kernels` 返回两类选择及其有效值，详情见 [更新日志](./CHANGELOG.md)。
 
 **0.3.3** 常规 HTTP 扩展工具收到标准 `{code,msg,data}` JSON 响应时，成功直接返回 `data`，失败返回 `isError`、HTTP `status`、内核 `code`、`msg` 和 `data`。文件、代理、SSE、直接 JSON 等特殊接口保持各自的原始响应；通用 `siyuan_rpc` 继续提供完整 HTTP 结果。
 
@@ -55,14 +55,9 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务；两种询�
 
 ## 思源 callout 规则提醒
 
-详细步骤见 [规则编写教程](./docs/规则编写教程.md)：从创建原生 callout、编写触发条件，到正则与路径、优先级与互斥、去重、插件扩展和排错。DSH 思源对接插件 0.7.0 配合 context-care 0.12.0，支持指定会话、当前预设名称与模型条件、多个会话共享持久额度、普通文本及可读 reasoning 模式触发，以及工具超时专属提醒。原有 v1/v2 声明继续可用。
+详细步骤见 [规则编写教程](./docs/规则编写教程.md)：创建原生 callout、共同声明、正则与路径、优先级与互斥、时间窗口、接收范围与共享额度、输出和工具错误、扩展及排错。所有能力使用同一份引擎声明。
 
-- [第 11 节：自然请求与晚间休息提醒](./docs/规则编写教程.md#11-自然请求与晚间休息提醒)：v2 时间窗口和近期真人输入条件。
-- [第 12 节：指定接收会话与共享次数](./docs/规则编写教程.md#12-指定接收会话与共享次数)：会话/预设范围、生命周期与窗口共享额度。
-- [第 13 节：普通文本与可读推理触发](./docs/规则编写教程.md#13-普通文本与可读推理触发)：v3 模式、下一请求交付及显式中止续接。
-- [第 14 节：只在工具超时后提醒](./docs/规则编写教程.md#14-只在工具超时后提醒)：v1 `tool.failed` 与精确错误码。
-
-思源可向公共 `reminderRules` 服务贡献规则。当前由 context-care 的已有 `/requests` Host 行提供服务，思源通过可选注入连接。开发时从 `dsh-context-care/reminders` 导入实际服务和规则类型，构建后运行时通过 Cordis 获取服务；没有该服务时，思源工具继续独立工作。
+思源可向公共 `reminderRules` 服务贡献规则。当前由 context-care 的已有 `/requests` Host 行提供服务，思源通过可选注入连接。开发时从 `dsh-context-care/reminders` 导入实际服务与来源类型，构建后运行时通过 Cordis 获取服务；没有该服务时，思源工具继续独立工作。笔记使用引擎共同 `schemaVersion: 2` 声明。思源只提取原生块文本并转接 I/O；YAML 解码、共同 schema 校验、条件与动作扩展、来源缓存、增量失效、容量重试和撤回由引擎实现。
 
 使用专属 callout 标记 `[!DSH-REMINDER]`，内部放一个 `dsh-rule` 代码块，其余正文就是提醒内容。标记归属公共提醒服务，其他插件的规则使用各自标记；单独出现 `dsh-rule` 不会注册为提醒。下面的声明在成功读取 `.ts` 或 `.d.ts` 后，于下一次自然模型请求前提醒：
 
@@ -72,27 +67,32 @@ DSH 需要提供 `tools`、`storageDomain` 和 `credentials` 服务；两种询�
 > 禁止使用 `any`。类型暂不明确时使用 `unknown`，再缩小类型范围。
 >
 > ```dsh-rule
-> format: reminder/v4
+> schemaVersion: 2
 > id: typescript-no-any
-> on: tool.succeeded
-> when:
+> revision: 1
+> on: [tool.succeeded]
+> select: { view: original, roles: [tool], blockTypes: [tool-result] }
+> event:
 >   tool: read
 >   arguments:
 >     file_path:
 >       regex: '\.ts$'
 >       flags: i
-> effect:
->   kind: remind
->   deliver:
->     model:
->       once: surface
+> match: { kind: always }
+> actions:
+>   - id: model
+>     kind: notify
+>     stage: tool.succeeded
+>     enabledDefault: true
+>     delivery:
+>       model: { once: surface }
 > ```
 ````
 
-规则可以放在任意文档中，无需配置文档或块 ID。插件在现有已启用核心中自动执行以下检索，一次读取全部匹配块，并按独立的会话规则来源核心决定接收资格；会话未选择来源时使用全局默认核心，没有全局默认时不接收思源规则。来源符合后，context-care 再按规则的会话 ID、当前预设名称和模型等条件筛选。显式 `LIMIT -1` 避开思源在省略 LIMIT 时采用的默认返回条数：
+规则可以放在任意文档中，无需配置文档或块 ID。插件在现有已启用核心中自动执行以下检索，定位全部匹配块，再用 `/api/export/exportMdContent` 按块 ID 获取标准 Markdown，并显式设置 `addTitle: false`、`yfm: false`；IAL 由内核导出器处理，插件保留正文及代码中的字面量。按独立的会话规则来源核心决定接收资格；会话未选择来源时使用全局默认核心，没有全局默认时不接收思源规则。来源符合后，context-care 再按规则的会话 ID、当前预设名称和模型等条件筛选。显式 `LIMIT -1` 避开思源在省略 LIMIT 时采用的默认返回条数：
 
 ```sql
-SELECT id,root_id,type,subtype,markdown FROM blocks
+SELECT id,root_id,type,subtype FROM blocks
 WHERE type='callout' AND subtype='DSH-REMINDER'
 ORDER BY id LIMIT -1
 ```
@@ -101,9 +101,9 @@ ORDER BY id LIMIT -1
 
 提醒来源通过管理器的内部专用能力订阅推送并读取固定范围的提醒块，沿用已启用核心、实例绑定、凭据和配置生命周期；不需要为这些内部请求设置模型端点授权。模型工具和公共 `invoke` 调用仍执行原有逐端点审批。管理器每核心共享一条只读推送连接，普通网络断线后按1、2、4秒递增至30秒重连；认证、权限、限流和关闭帧协议错误按“连接与凭据”一节暂停，连接配置成功更新后恢复。每批读取前等待事务和索引队列完成；事务按 `context.rootIDs` 局部查询并合并快照，已知规则文档的子块编辑和新提醒标记都触发更新。范围不明、同步、移动及笔记本挂卸载做全量校准，无关状态通知不读取。扫描期间的新事件保留到下一批。未变块复用解析和校验结果，包括错误结果；一个坏块只暂停自己的规则。离线立即撤销来源，恢复后全量校准；读取或连接失败记入插件日志。
 
-同一提醒仍在模型可见上下文时只投递一次；追加普通消息、再次读取文件或只修改正文都不会重复。提醒被压缩移除后，新读取事件可以再次触发。身份包含核心、块 ID 和规则 ID，移动到其他文档不改变身份。正文和标题可以修改，`id` 用于保持身份，省略时为 `reminder`。YAML 使用 1.2，拒绝重复键和 aliases，规则字段由服务统一校验。
+同一提醒仍在模型可见上下文时只投递一次；追加普通消息、再次读取文件或只修改正文都不会重复。提醒被压缩移除后，新读取事件可以再次触发。身份包含核心、块 ID 和规则 ID，移动到其他文档不改变身份。正文和标题可以修改，`id` 为显式非空字符串，用于保持身份。YAML 使用 1.2，重复键、循环或超限别名产生诊断，规则字段由引擎统一校验。
 
-`when.condition` 可以追加引擎 v2 条件树，读取插件分析器产出的 `facts.<ref>`；`judge` 可以引用插件注册的异步判定器。笔记中声明条件和引用，分析器/判定器的代码由插件注册。
+共同 `match` 条件树可引用插件注册的条件扩展，读取分析器产出的 `facts.<ref>`；`judge` 可引用已注册的异步判定器。笔记只声明版本化引用与参数，代码由插件向引擎注册。
 
 ## 会话记录
 
@@ -209,10 +209,10 @@ export async function apply(ctx) {
 在 DSH 插件管理界面填写以下 GitHub 来源安装或升级。标签携带 Host、客户端及类型声明，安装后重启 DSH 并刷新页面：
 
 ```text
-https://github.com/leolee9086/dsh-plugin-siyuan#v0.7.0
+https://github.com/leolee9086/dsh-plugin-siyuan#v0.8.1
 ```
 
-客户端通过 `./client` 和 `dsh.client` 声明加载。构建将官方思源 SVG 嵌入客户端，与宿主 JS、类型声明、契约一起放入 `lib/`。Host 接线从正式 DSH 包导入开发类型，提醒接口使用 context-care v0.12.0 的公开类型，均以 `import type` 消除运行时依赖。
+客户端通过 `./client` 和 `dsh.client` 声明加载。构建将官方思源 SVG 嵌入客户端，与宿主 JS、类型声明、契约一起放入 `lib/`。Host 接线从正式 DSH 包导入开发类型，提醒接口使用配套 context-care v0.14.18 发行归档的公开服务与来源类型，均以 `import type` 消除运行时依赖。
 
 本地进度、交接与调查笔记统一放在 `.local/notes/`，临时命令日志放在 `.local/logs/`；预览与验证输出放在 `artifacts/`，安装包及独立消费者放在 `releases/`。这些目录由 Git 忽略。教程等可维护说明放在 `docs/`，发行所需的 `lib/` 继续跟踪。
 

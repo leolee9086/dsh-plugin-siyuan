@@ -4,6 +4,7 @@ import { KernelManager, managedTools } from '../lib/manager.js';
 import { SiYuanConnection } from '../lib/connection.js';
 import { createTools } from '../lib/host.js';
 import { fixture, docId, blockId } from './fixture.mjs';
+import { ReminderSources } from '../lib/rules.js';
 
 function memoryDomain() {
   const tables = new Map();
@@ -36,14 +37,17 @@ test('internal snapshots and shared WS work under tool denial while model invoke
     await manager.initialize({ apiUrl: server.apiUrl, timeoutMs: 1000 });
     const template = new SiYuanConnection({}); managedTools(manager, createTools(template)); await template.dispose();
     server.data.reminderBlocks = [row];
+    server.data.reminderMarkdown.set(row.id, row.markdown);
     const endpoints = [
       manager.endpoints('local', { query: '/api/query/sql', protocol: 'http' }).items[0],
       manager.endpoints('local', { query: '/api/sqlite/flushTransaction', protocol: 'http' }).items[0],
+      manager.endpoints('local', { query: '/api/export/exportMdContent', protocol: 'http' }).items[0],
       manager.endpoints('local', { protocol: 'ws' }).items.find(item => item.path === '/ws'),
     ];
     const calls = [
       { channel: 'http', method: 'POST', path: '/api/query/sql', body: { stmt: 'SELECT * FROM blocks' } },
       { channel: 'http', method: 'POST', path: '/api/sqlite/flushTransaction', body: {} },
+      { channel: 'http', method: 'POST', path: '/api/export/exportMdContent', body: { id: row.id } },
       { channel: 'ws', path: '/ws', messages: [] },
     ];
     assert.ok(endpoints.every(endpoint => endpoint.decision === 'ask-full-access'));
@@ -111,22 +115,73 @@ test('internal snapshot flushes before a full or document-scoped read and reject
   try {
     await manager.initialize({ apiUrl: server.apiUrl, timeoutMs: 1000 });
     server.data.reminderBlocks = [row, { ...row, id: docId, root_id: blockId }];
+    server.data.reminderMarkdown.set(row.id, row.markdown); server.data.reminderMarkdown.set(docId, row.markdown);
     assert.equal((await snapshot(manager)).length, 2);
     assert.deepEqual(await manager.readReminderBlocks('local', [docId], new AbortController().signal), [row]);
     assert.deepEqual(server.requests.map(request => request.path), [
-      '/api/sqlite/flushTransaction', '/api/query/sql', '/api/sqlite/flushTransaction', '/api/query/sql',
+      '/api/sqlite/flushTransaction', '/api/query/sql', '/api/export/exportMdContent', '/api/export/exportMdContent',
+      '/api/sqlite/flushTransaction', '/api/query/sql', '/api/export/exportMdContent',
     ]);
     const statements = server.requests.filter(request => request.path === '/api/query/sql').map(request => JSON.parse(request.bytes).stmt);
     assert.match(statements[0], /WHERE type='callout' AND subtype='DSH-REMINDER' ORDER BY id LIMIT -1$/);
+    assert.ok(statements.every(stmt => !stmt.includes('markdown')), 'SQL discovers identity, not document content');
+    assert.deepEqual(server.requests.filter(request => request.path === '/api/export/exportMdContent').map(request => JSON.parse(request.bytes)),
+      [{ id: row.id, addTitle: false, yfm: false }, { id: docId, addTitle: false, yfm: false }, { id: row.id, addTitle: false, yfm: false }]);
     assert.match(statements[1], new RegExp(`AND root_id IN \\('${docId}'\\) ORDER BY id LIMIT -1$`));
     await assert.rejects(manager.readReminderBlocks('local', ["x') OR 1=1 --"], new AbortController().signal), /ID 无效/);
-    assert.equal(server.requests.length, 4);
+    assert.equal(server.requests.length, 7);
     server.data.flushResult = { code: -1, msg: 'index failed', data: null };
     await assert.rejects(snapshot(manager), /index failed/);
     assert.equal(server.requests.at(-1).path, '/api/sqlite/flushTransaction');
-    assert.equal(server.requests.length, 5, 'failed barrier must not query stale blocks');
+    assert.equal(server.requests.length, 8, 'failed barrier must not query stale blocks');
   } finally { await manager.close(); await server.close(); }
 });
+
+test('native standard Markdown supplies content and preserves authored IAL-shaped literals', async () => {
+  const server = await fixture();
+  const manager = createManager();
+  const body = ['```dsh-rule', 'template: "{: id=example} 保留"', '```', '', '`{: id="inline"}`'].join('\n');
+  const markdown = '> [!DSH-REMINDER] 标准正文\n>\n' + body.split('\n').map(line => '> ' + line).join('\n');
+  try {
+    await manager.initialize({ apiUrl: server.apiUrl, timeoutMs: 1000 });
+    server.data.reminderBlocks = [{ ...row, markdown: 'SQL markdown must not be used {: id="structural"}' }];
+    server.data.reminderMarkdown.set(row.id, markdown);
+    const blocks = await snapshot(manager);
+    assert.equal(blocks[0].markdown, markdown);
+    assert.deepEqual(ReminderSources.documents(blocks), [{ id: row.id, rootId: row.root_id, title: '标准正文', text: body }]);
+  } finally { await manager.close(); await server.close(); }
+});
+
+test('invalid standard Markdown response fails instead of falling back to SQL content', async () => {
+  const server = await fixture();
+  const manager = createManager();
+  try {
+    await manager.initialize({ apiUrl: server.apiUrl, timeoutMs: 1000 });
+    server.data.reminderBlocks = [row]; server.data.reminderMarkdown.set(row.id, { markdown: row.markdown });
+    await assert.rejects(snapshot(manager), /标准 Markdown 响应缺少正文/);
+  } finally { await manager.close(); await server.close(); }
+});
+
+for (const interruption of ['abort', 'revision']) {
+  test(`standard Markdown read stops after ${interruption} without exporting the next block`, async () => {
+    let entered, release;
+    const started = new Promise(resolve => { entered = resolve; });
+    const gate = new Promise(resolve => { release = resolve; });
+    const server = await fixture({ beforeMarkdown: async () => { entered(); await gate; } });
+    const manager = createManager(), controller = new AbortController();
+    try {
+      await manager.initialize({ apiUrl: server.apiUrl, timeoutMs: 1000 });
+      server.data.reminderBlocks = [row, { ...row, id: docId }];
+      server.data.reminderMarkdown.set(row.id, row.markdown); server.data.reminderMarkdown.set(docId, row.markdown);
+      const pending = manager.readReminderBlocks('local', undefined, controller.signal);
+      const rejected = assert.rejects(pending, interruption === 'abort' ? /abort|取消/i : /配置已变化/);
+      await started;
+      if (interruption === 'abort') controller.abort(); else await manager.select(null);
+      release(); await rejected;
+      assert.equal(server.requests.filter(request => request.path === '/api/export/exportMdContent').length, 1);
+    } finally { release(); await manager.close(); await server.close(); }
+  });
+}
 
 for (const interruption of ['abort', 'revision']) {
   test(`internal snapshot stops after ${interruption} during the transaction barrier`, async () => {

@@ -240,11 +240,21 @@ export class KernelManager {
       await current();
       // LIMIT -1 避开思源 SQL 的隐式行数上限，每批先等事务和索引队列完成。
       const blocks = await callKernel(connection, "/api/query/sql", {
-        stmt: "SELECT id,root_id,type,subtype,markdown FROM blocks WHERE type='callout' AND subtype='DSH-REMINDER'" + filter + " ORDER BY id LIMIT -1",
+        stmt: "SELECT id,root_id,type,subtype FROM blocks WHERE type='callout' AND subtype='DSH-REMINDER'" + filter + " ORDER BY id LIMIT -1",
       }, signal);
       await current();
       if (!Array.isArray(blocks)) throw new Error("思源规则查询应返回块数组");
-      return blocks.map((block: unknown) => this.#secrets.value(block));
+      const result = [];
+      for (const block of blocks) {
+        if (!isRecord(block) || typeof block.id !== "string") throw new Error("思源提醒块缺少 ID");
+        // SQL 只定位块，标准 Markdown 由内核导出；IAL 与代码字面量由原生语法树区分。
+        await current();
+        const exported = await callKernel(connection, "/api/export/exportMdContent", { id: block.id, addTitle: false, yfm: false }, signal);
+        await current();
+        if (!isRecord(exported) || typeof exported.content !== "string") throw new Error("思源标准 Markdown 响应缺少正文");
+        result.push(this.#secrets.value({ ...block, markdown: exported.content }));
+      }
+      return result;
     } catch (error) {
       // 旧配置或已取消读取的迟到响应不能暂停新连接。
       if (!signal.aborted && revision === this.#state.revision) this.#push.pause(kernelId, error);

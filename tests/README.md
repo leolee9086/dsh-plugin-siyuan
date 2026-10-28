@@ -6,6 +6,7 @@
 | --- | --- |
 | `pnpm run test:behavior` | 严格 TypeScript 测试编译，端点策略、状态规则、请求输入、凭据过滤、提醒规则和 React 组件交互 |
 | `pnpm run test:protocol` | 连接库与五个工具的隔离 HTTP、WS、JSON-RPC 和 MCP 行为 |
+| `pnpm run test:documents` | README 和教程的五个完整 callout 经原生 I/O 与引擎公共注册接口验证 |
 
 ## 独立行为测试
 
@@ -17,7 +18,7 @@
 - `kernel-directory.test.ts`：多核心与会话选择、停用和空目录、凭据服务离线时的本地读取、无网络与配置写入、公开字段和凭据过滤、严格空参数、取消和卸载；通过生产 `KernelManager` 与工具执行入口验证。
 - `management-input.test.mjs`：内容类型、字节流 JSON、大小限制和查询校验。
 - `secrets.test.mjs`：跨核心凭据与编码形式遮罩、敏感词业务字段的类型保留、MCP 媒体位置与业务对象区分。
-- `reminders.test.mjs`：原生 callout 解析、v1/v2/v3 声明、来源身份、范围和通知刷新行为。
+- `reminders.test.mjs`：只测内核标准 Markdown 的 callout 容器提取、块身份、代码字面量保留和 I/O 配置；规则解释、来源缓存、重试、增量与撤回行为在引擎库中使用真实引擎验证。
 - `client-ui.test.mjs`：真实 React 静态渲染；活动经过凭据过滤、持久化解析、返回投影和 JSON 传输后保留审批，旧版错误脱敏记录可读且注明明细丢失。
 - `client-navigation.test.mjs`：真实 React 与 jsdom 验证卡片点击、参数展开和定位反馈；通过领域参数注入历史加载，验证补载历史、PTC 根与子调用、原生展开事件、换会话和卸载取消。连接页用插件自有网络端口验证暂停核心跳过自动检查、人工一次点击只发一次检查、访问成功仍保留提醒暂停及限流文案。jsdom 无布局引擎，几何读数单独提供，实际滚动由安装后的软件验收。
 - `client-layout.test.mjs`：首次加载本机实例、旧 PID 失效后的选择与绑定刷新；暂停核心跳过自动发现，人工刷新只列实例；高级选项与工具箱默认折叠，活动成功和失败分区显示。
