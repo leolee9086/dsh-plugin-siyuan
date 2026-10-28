@@ -479,7 +479,7 @@ packages:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
 
   dsh-context-care@https://github.com/leolee9086/dsh-context-care/releases/download/v0.14.18/dsh-context-care-0.14.18.tgz:
-    resolution: {integrity: sha512-gYTzeGVJZW0bfK84dqVoXTHF7KitkY6u7nmhNVU8bbSSFooKzrikNXASaQ68ZNcmGzrtKcaAQurG2q+sadiAew==, tarball: https://github.com/leolee9086/dsh-context-care/releases/download/v0.14.18/dsh-context-care-0.14.18.tgz}
+    resolution: {integrity: sha512-coPntQHveuTXQ3O4wKjpCz1NgaV9hAoVaPRCRlG8dDZ4sQXammsJS/sSh2T5f6hR0DqZsIY3LPj+MKmdkHkSWg==, tarball: https://github.com/leolee9086/dsh-context-care/releases/download/v0.14.18/dsh-context-care-0.14.18.tgz}
     version: 0.14.18
     engines: {node: '>=22.19.0'}
 
