@@ -74,7 +74,42 @@ export class SecretFilter {
     return value;
   }
   error(error: unknown): Error {
-    // 不转发 cause/stack/第三方响应对象，它们可能含连接配置、请求头或凭据。
-    return new Error(this.text(error instanceof Error ? error.message : String(error)));
+    const seen = new Map<object, Error>();
+    const project = (input: unknown): Error => {
+      if (!input || typeof input !== "object") return new Error(this.text(String(input)));
+      const previous = seen.get(input);
+      if (previous) return previous;
+      // 只复制诊断字段；请求、响应和连接对象不属于错误的输出契约。
+      const result = new Error(this.text("message" in input ? String(input.message) : String(input)));
+      seen.set(input, result);
+      if ("name" in input && typeof input.name === "string") result.name = this.text(input.name);
+      if ("stack" in input && typeof input.stack === "string") result.stack = this.text(input.stack);
+      if ("code" in input && (typeof input.code === "string" || typeof input.code === "number")) {
+        Object.defineProperty(result, "code", { value: this.value(input.code), enumerable: true });
+      }
+      if ("cause" in input) result.cause = project(input.cause);
+      if ("errors" in input && Array.isArray(input.errors)) {
+        Object.defineProperty(result, "errors", { value: input.errors.map(project), enumerable: true });
+      }
+      return result;
+    };
+    return project(error);
+  }
+  /** 活动记录和 HTTP 错误以文本落盘，显式展开原因链才能跨过 JSON 的 Error 字段省略。 */
+  errorText(error: unknown): string {
+    const seen = new Set<Error>();
+    const render = (item: Error): string => {
+      if (seen.has(item)) return "[重复错误引用]";
+      seen.add(item);
+      const code = "code" in item ? ` [code=${String(item.code)}]` : "";
+      const parts = [`${item.name}: ${item.message}${code}`];
+      if (item.stack) parts.push(item.stack);
+      if (item.cause instanceof Error) parts.push(`Caused by: ${render(item.cause)}`);
+      if ("errors" in item && Array.isArray(item.errors)) {
+        for (const child of item.errors) if (child instanceof Error) parts.push(`Aggregate: ${render(child)}`);
+      }
+      return parts.join("\n");
+    };
+    return render(this.error(error));
   }
 }

@@ -52,8 +52,8 @@ export async function sendRequest(request: Request): Promise<Response> {
       }
       if (!code) throw error;
       const result = retryable ? '本次读取失败，可在连接恢复后重试' : '请求结果未确认，请先检查操作结果再决定是否重试';
-      // 仅暴露错误码和固定说明，底层异常中的地址、请求与认证信息不进入提示。
-      throw new Error(`思源连接失败（${code}）：${descriptions[code] ?? '网络或 TLS 连接异常'}；${result}`);
+      // 保留传输原因；管理器输出边界统一脱敏，诊断仍可追溯到底层调用帧。
+      throw new Error(`思源连接失败（${code}）：${descriptions[code] ?? '网络或 TLS 连接异常'}；${result}`, { cause: error });
     }
   }
 }

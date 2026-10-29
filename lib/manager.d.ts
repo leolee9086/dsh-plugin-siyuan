@@ -191,6 +191,7 @@ export declare class KernelManager {
     /** 为管理 HTTP 接口提供安全投影，任何异常都不携带原始请求或凭据。 */
     safe(value: unknown): unknown;
     error(error: unknown): Error;
+    errorText(error: unknown): string;
     close(): Promise<void>;
 }
 /** 五个业务工具增加目标选择参数，核心目录独立注册并沿用同一个管理器入口。 */

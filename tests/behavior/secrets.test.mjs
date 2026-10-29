@@ -24,6 +24,42 @@ test("跨核心秘密、JSON文本、整段编码、WS二进制及错误被安�
   }
 });
 
+test("错误保留原始调用帧、错误码、原因链与聚合分支，并脱敏且不携带请求对象", () => {
+  const filter = new SecretFilter();
+  const secret = "diagnostic-private-credential";
+  filter.remember(secret);
+  const cause = Object.assign(new TypeError(`failed ${secret}`), { code: "ECONNRESET", request: { secret } });
+  cause.stack = `TypeError: failed ${secret}\n    at originalCall (source.ts:12:7)`;
+  const original = new AggregateError([cause], "operation failed", { cause });
+  cause.cause = original;
+  const projected = filter.error(original);
+  assert.equal(projected.name, "AggregateError");
+  assert.equal(projected.cause.name, "TypeError");
+  assert.equal(projected.cause.code, "ECONNRESET");
+  assert.equal(projected.cause.request, undefined);
+  assert.equal(projected.cause.cause, projected);
+  assert.equal(projected.errors[0], projected.cause);
+  assert.match(projected.cause.stack, /originalCall \(source.ts:12:7\)/);
+  const text = filter.errorText(projected);
+  assert.match(text, /ECONNRESET/);
+  assert.match(text, /Caused by:/);
+  assert.match(text, /originalCall/);
+  assert.match(text, /Aggregate:/);
+  assert.ok(!text.includes(secret));
+  assert.ok(text.includes("[redacted]"));
+  assert.equal(filter.errorText(filter.error(projected)), text);
+  assert.ok(cause.message.includes(secret));
+});
+
+test("跨 realm 错误与非 Error 抛出值保留诊断", () => {
+  const filter = new SecretFilter();
+  const projected = filter.error({ name: "TypeError", message: "missing index", stack: "at external.js:35:12", code: 42 });
+  assert.equal(projected.name, "TypeError");
+  assert.equal(projected.stack, "at external.js:35:12");
+  assert.equal(projected.code, 42);
+  assert.equal(filter.error("plain failure").message, "plain failure");
+});
+
 test("字段名不决定保密，所有原敏感词对应的业务类型及嵌套文本保持完整", () => {
   const filter = new SecretFilter(); filter.remember("fixture-registered-credential");
   const keys = ["token", "secret", "password", "authorization", "cookie", "credential", "authcode", "apiKey", "api_key",

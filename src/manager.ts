@@ -584,9 +584,10 @@ export class KernelManager {
       return { summary: typeof safe === "string" ? safe : JSON.stringify(safe, null, 2) };
     } catch (error) {
       activity.status = error instanceof KernelError ? "failed" : sent ? "uncertain" : "denied";
-      activity.error = this.#secrets.error(error).message; activity.elapsedMs = Date.now() - started;
+      const safeError = this.#secrets.error(error);
+      activity.error = this.#secrets.errorText(safeError); activity.elapsedMs = Date.now() - started;
       try { await this.#activity.put(activity.id, this.#secrets.value(activity)); } catch { /* 不覆盖原始拒绝结果。 */ }
-      throw this.#secrets.error(error);
+      throw safeError;
     } finally {
       if (connection) try { await this.release(connection); } catch { /* 已结算操作不因清理失败变成失败，禁止重放。 */ }
     }
@@ -594,6 +595,7 @@ export class KernelManager {
   /** 为管理 HTTP 接口提供安全投影，任何异常都不携带原始请求或凭据。 */
   safe(value: unknown) { return this.#secrets.value(value); }
   error(error: unknown) { return this.#secrets.error(error); }
+  errorText(error: unknown) { return this.#secrets.errorText(error); }
   async close() {
     this.#closed = true; this.#publication?.dispose(); this.#publication = undefined;
     await this.#writeChain;

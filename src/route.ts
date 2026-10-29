@@ -48,6 +48,6 @@ export function createRoute(requestRejection: (request: IncomingMessage) => 401 
         default: throw new Error("未知管理操作");
       }
       json(response, 200, manager.safe(result));
-    } catch (error) { json(response, 400, { error: manager.error(error).message }); }
+    } catch (error) { json(response, 400, { error: manager.error(error).message, diagnostic: manager.errorText(error) }); }
   };
 }

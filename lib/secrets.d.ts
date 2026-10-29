@@ -9,4 +9,6 @@ export declare class SecretFilter {
     /** 仅在 MCP 协议定义的内容位置省略媒体，structuredContent 和资源数据仍按业务值处理。 */
     mcp(value: unknown, method: string): unknown;
     error(error: unknown): Error;
+    /** 活动记录和 HTTP 错误以文本落盘，显式展开原因链才能跨过 JSON 的 Error 字段省略。 */
+    errorText(error: unknown): string;
 }

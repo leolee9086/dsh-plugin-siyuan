@@ -149,7 +149,11 @@ export async function apply(ctx: Context, rawConfig: unknown) {
     return outcome === "rejected" && policy === "never" ? "policy-never" : outcome;
   });
   try { await manager.initialize(rawConfig); }
-  catch { await domain.close(); throw new Error("思源配置或凭据初始化失败，请检查本机设置"); }
+  catch (error) {
+    const cause = manager.error(error);
+    try { await domain.close(); } catch { /* 初始化原因优先于清理失败。 */ }
+    throw new Error("思源配置或凭据初始化失败，请检查本机设置", { cause });
+  }
   // 注册公共服务时只投影受控操作，不发布 config、HTTP、SDK client 或裸 socket。
   ctx.provide(SERVICE, Object.freeze({ invoke: manager.invoke.bind(manager) }));
   ctx.effect(() => () => manager.close(), `${name}: manager`);
