@@ -72,7 +72,7 @@ export function frontmatter(text: string): Record<string, string> {
       const value = pair[2].trim();
       if (value === "|" || value === ">") throw new Error(`技能 frontmatter 的 ${pair[1]} 用了块标量，暂不支持`);
       key = pair[1];
-      result[key] = value;
+      result[key] = unquote(value);
       continue;
     }
     if (key) { result[key] = `${result[key]} ${line}`.trim(); continue; }
