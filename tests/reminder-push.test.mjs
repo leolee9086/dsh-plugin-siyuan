@@ -57,8 +57,8 @@ test('internal snapshots and shared WS work under tool denial while model invoke
     for (const args of calls) await assert.rejects(manager.invoke('siyuan_rpc', { kernelId: 'local', ...args }), /未获批准/);
     assert.equal(server.requests.length, requests); assert.equal(connections, 0);
     for (const endpoint of endpoints) await manager.grant('local', endpoint.key, 'deny');
-    const stopFirst = manager.watchReminders(event => first.push(event));
-    const stopSecond = manager.watchReminders(event => second.push(event));
+    const stopFirst = manager.watchKernels(event => first.push(event));
+    const stopSecond = manager.watchKernels(event => second.push(event));
     await until(() => first.some(event => event.kind === 'ready') && second.some(event => event.kind === 'ready'));
     assert.equal(connections, 1); assert.equal(server.ws.clients.size, 1);
     assert.deepEqual(await snapshot(manager), [row]);
@@ -71,14 +71,14 @@ test('internal snapshots and shared WS work under tool denial while model invoke
     message({ cmd: 'statusbar', data: {} });
     message({ cmd: 'transactions', context: { rootIDs: [docId] }, data: [{ doOperations: [{ action: 'update', data: '<div>ordinary</div>' }] }] });
     await until(() => changed().length === 1);
-    assert.deepEqual(changed()[0], { kernelId: 'local', kind: 'change', roots: [docId], marker: false });
+    assert.deepEqual(changed()[0], { kernelId: 'local', kind: 'change', roots: [docId], operations: [{ action: 'update', data: '<div>ordinary</div>' }] });
     message({ cmd: 'transactions', context: { rootIDs: [docId] }, data: [{ doOperations: [{ action: 'insert', data: '<div data-subtype="DSH-REMINDER">rule</div>' }] }] });
     message({ cmd: 'transactions', data: [] });
     message({ cmd: 'syncMergeResult', data: {} });
     message({ cmd: 'moveDocs', data: {} });
     message({ cmd: 'mount', data: {} });
     await until(() => changed().length === 6);
-    assert.equal(changed()[1].marker, true);
+    assert.ok(changed()[1].operations.some(operation => String(operation.data).includes('DSH-REMINDER')));
     assert.ok(changed().slice(2).every(event => event.roots === undefined));
     assert.equal(sends, 0, 'watch is receive-only');
     const firstCount = first.length;
@@ -99,7 +99,7 @@ test('default ask permits internal WS and last consumer cancellation aborts reco
   try {
     await manager.initialize({ apiUrl: server.apiUrl, timeoutMs: 1000 });
     const events = [];
-    const stop = manager.watchReminders(event => events.push(event));
+    const stop = manager.watchKernels(event => events.push(event));
     await until(() => events.some(event => event.kind === 'ready'));
     [...server.ws.clients][0].terminate();
     await until(() => events.some(event => event.kind === 'offline' && event.message));

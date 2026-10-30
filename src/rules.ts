@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { ReminderService } from 'dsh-context-care/reminders';
-import type { ReminderWatch } from './push.js';
+import { textOf, type KernelWatch } from './push.js';
+/** 提醒块自己的标记；只有事务里出现它，才说明规则内容可能变了。 */
+const MARKER = 'DSH-REMINDER';
 
 const Options = z.object({ refreshMs: z.number().int().min(1000).max(3600000).default(30000) }).strict();
 const Config = z.object({ reminders: Options.default({ refreshMs: 30000 }) }).passthrough();
@@ -21,12 +23,22 @@ function options(raw: unknown) { return Config.parse(raw ?? {}).reminders; }
 
 function attach(service: Pick<ReminderService, 'connectDocuments'>, config: z.infer<typeof Options>,
   readBlocks: (kernelId: string, roots: string[] | undefined, signal: AbortSignal) => Promise<unknown[]>, report: (message: string) => void,
-  kernels: () => string[], accepts: (kernelId: string, sessionId: string) => boolean, watch: ReminderWatch) {
+  kernels: () => string[], accepts: (kernelId: string, sessionId: string) => boolean, watch: KernelWatch) {
   return service.connectDocuments({
     plugin: 'dsh-plugin-siyuan', refreshMs: config.refreshMs, keys: kernels, accepts, report,
     sourceId: key => `siyuan:${key}:reminders`,
     async read(key, roots, signal) { return documents(await readBlocks(key, roots, signal)); },
-    watch(receive) { return watch(event => { const { kernelId, ...change } = event; receive({ ...change, key: kernelId }); }); },
+    watch(receive) {
+      return watch(event => {
+        if (event.kind !== 'change') {
+          receive({ key: event.kernelId, kind: event.kind, ...(event.kind === 'offline' ? { message: event.message } : {}) });
+          return;
+        }
+        // 属性变更的负载是对象，先折成文本再比，不然标记判断会漏掉打标签这类操作。
+        receive({ key: event.kernelId, kind: 'change', ...(event.roots === undefined ? {} : { roots: event.roots }),
+          marker: event.operations.some(operation => textOf(operation.data).includes(MARKER)) });
+      });
+    },
   });
 }
 

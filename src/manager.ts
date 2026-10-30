@@ -5,7 +5,8 @@ import type { CredentialProvider, CredentialRef } from "@deepseek-ai/dsh-credent
 import type { Domain as StorageDomain, KvTable } from "@deepseek-ai/dsh-storage-domain";
 import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { SiYuanConnection } from "./connection.js";
-import { ReminderPushHub, type ReminderWatch } from "./push.js";
+import { KernelPushHub, type KernelWatch } from "./push.js";
+import { TAG, type SkillAttachment, type SkillBody, type SkillDocument } from "./skills.js";
 import { normalizeConfig, KernelError, KernelAccessError, callKernel } from "./api.js";
 import { loadContract } from "./contract.js";
 import { SecretFilter } from "./secrets.js";
@@ -53,6 +54,19 @@ function resourceIds(value: unknown, result = new Set<string>()): string[] {
   else if (value && typeof value === "object") Object.values(value).forEach(item => resourceIds(item, result));
   return [...result];
 }
+/** 同目录文档里排除目录和技能自身：目录的特征是它下面还挂着别的文档。 */
+function siblingAttachments(hpath: string, rows: unknown[]): SkillAttachment[] {
+  const prefix = hpath.replace(/\/[^/]*$/, "") + "/";
+  const items: { id: string; hpath: string }[] = [];
+  for (const row of rows) {
+    if (!isRecord(row) || typeof row.id !== "string" || typeof row.hpath !== "string") throw new Error("思源附件行缺少字段");
+    items.push({ id: row.id, hpath: row.hpath });
+  }
+  const paths = items.map(item => item.hpath);
+  return items
+    .filter(item => item.hpath !== hpath && !paths.some(other => other.startsWith(item.hpath + "/")))
+    .map(item => ({ path: item.hpath.slice(prefix.length), id: item.id }));
+}
 
 export class KernelManager {
   #state!: State;
@@ -61,7 +75,7 @@ export class KernelManager {
   #secrets = new SecretFilter();
   #connections = new Set<SiYuanConnection>();
   #closed = false;
-  #push = new ReminderPushHub({
+  #push = new KernelPushHub({
     kernels: () => this.reminderKernels(),
     error: error => this.#secrets.error(error).message,
     pause: error => {
@@ -95,7 +109,7 @@ export class KernelManager {
       } catch (error) { await this.release(connection); throw error; }
     },
   });
-  watchReminders: ReminderWatch = listener => this.#push.watch(listener);
+  watchKernels: KernelWatch = listener => this.#push.watch(listener);
   #publication?: GatewayPublication;
   #publicationError = "";
   /** 可选网关出现/消失时仅挂载/释放扩展工具，五个基础工具始终独立可用。 */
@@ -260,6 +274,64 @@ export class KernelManager {
       if (!signal.aborted && revision === this.#state.revision) this.#push.pause(kernelId, error);
       throw this.#secrets.error(error);
     } finally { if (connection) await this.release(connection); }
+  }
+  /** 技能只有一个来源核心：当前默认核心。没有可用核心时提供方给空目录。 */
+  skillKernel() {
+    const kernel = this.#state.kernels.find(item => item.id === this.#state.defaultKernelId && item.enabled);
+    return kernel?.id;
+  }
+  /**
+   * 只读技能访问：SQL 与导出参数都在这里写死，不经过端点授权，也不发布到公共服务。
+   * 读之前先等事务与索引队列落盘，保证刚打的标签、刚写的内容查得到。
+   */
+  private async readKernel<T>(kernelId: string, signal: AbortSignal | undefined,
+    work: (call: (path: string, payload: Record<string, unknown>) => Promise<unknown>) => Promise<T>): Promise<T> {
+    let connection: SiYuanConnection | undefined;
+    try {
+      await this.#writeChain;
+      signal?.throwIfAborted();
+      const paused = this.#push.pausedState(kernelId);
+      if (paused) throw new Error(paused.message);
+      await this.refreshSecrets();
+      const kernel = await this.bindConnection(kernelId, signal);
+      connection = await this.connect(kernel, signal);
+      const target = connection;
+      await callKernel(target, "/api/sqlite/flushTransaction", {}, signal);
+      return await work((path, payload) => callKernel(target, path, payload, signal));
+    } catch (error) {
+      throw this.#secrets.error(error);
+    } finally { if (connection) await this.release(connection); }
+  }
+  /** 发现：带技能标签的文档，连同首个子块（frontmatter 代码块）的原文。 */
+  async listSkills(kernelId: string, signal?: AbortSignal): Promise<SkillDocument[]> {
+    const rows = await this.readKernel(kernelId, signal, call => call("/api/query/sql", {
+      stmt: `SELECT d.id AS doc, d.content AS title, c.content AS frontmatter`
+        + ` FROM blocks d JOIN blocks c ON c.parent_id = d.id`
+        + ` WHERE d.type = 'd' AND d.tag LIKE '%#${TAG}#%'`
+        + ` AND c.sort = (SELECT MIN(x.sort) FROM blocks x WHERE x.parent_id = d.id)`
+        + ` ORDER BY d.updated DESC LIMIT -1`,
+    }));
+    if (!Array.isArray(rows)) throw new Error("思源技能查询应返回块数组");
+    return rows.map(row => {
+      if (!isRecord(row) || typeof row.doc !== "string" || typeof row.frontmatter !== "string") throw new Error("思源技能行缺少字段");
+      return { id: row.doc, title: typeof row.title === "string" ? row.title : "", frontmatter: this.#secrets.text(row.frontmatter) };
+    });
+  }
+  /** 加载：整篇导出，再列出同目录的文档作为附件。 */
+  async readSkill(kernelId: string, docId: string, signal?: AbortSignal): Promise<SkillBody> {
+    if (!/^\d{14}-[a-z0-9]{7}$/.test(docId)) throw new Error("技能文档 ID 无效");
+    return this.readKernel(kernelId, signal, async call => {
+      const exported = await call("/api/export/exportMdContent", { id: docId, addTitle: false, yfm: false });
+      if (!isRecord(exported) || typeof exported.content !== "string" || typeof exported.hPath !== "string") {
+        throw new Error("思源标准 Markdown 响应缺少正文或路径");
+      }
+      const directory = exported.hPath.replace(/\/[^/]*$/, "");
+      const rows = await call("/api/query/sql", {
+        stmt: `SELECT id, hpath FROM blocks WHERE type = 'd' AND hpath LIKE '${directory.replace(/'/g, "''")}/%' ORDER BY hpath LIMIT -1`,
+      });
+      if (!Array.isArray(rows)) throw new Error("思源附件查询应返回块数组");
+      return { markdown: this.#secrets.text(exported.content), hpath: exported.hPath, attachments: siblingAttachments(exported.hPath, rows) };
+    });
   }
   /** 会话从独立选择的规则核心接收内容，规则自身再筛选适用会话。 */
   acceptsReminder(kernelId: string, sessionId: string) {

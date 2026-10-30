@@ -1,7 +1,8 @@
 import type { CredentialProvider } from "@deepseek-ai/dsh-credentials";
 import type { Domain as StorageDomain, KvTable } from "@deepseek-ai/dsh-storage-domain";
 import { SiYuanConnection } from "./connection.js";
-import { type ReminderWatch } from "./push.js";
+import { type KernelWatch } from "./push.js";
+import { type SkillBody, type SkillDocument } from "./skills.js";
 import { type Endpoint, type Decision } from "./policy.js";
 declare const filterEndpoints: (items: Endpoint[], grants: import("./policy.js").Grant[], kernelId: string, filter: {
     query?: string;
@@ -63,7 +64,7 @@ export declare class KernelManager {
     private credentials;
     private run;
     private approve?;
-    watchReminders: ReminderWatch;
+    watchKernels: KernelWatch;
     /** 可选网关出现/消失时仅挂载/释放扩展工具，五个基础工具始终独立可用。 */
     attachGateway(port: PublicationPort): () => void;
     private syncGateway;
@@ -101,6 +102,17 @@ export declare class KernelManager {
     reminderKernels(): string[];
     /** 插件内部固定读取提醒块；与模型工具的端点审批分开，也不发布到公共服务。 */
     readReminderBlocks(kernelId: string, roots: string[] | undefined, signal: AbortSignal): Promise<unknown[]>;
+    /** 技能只有一个来源核心：当前默认核心。没有可用核心时提供方给空目录。 */
+    skillKernel(): string | undefined;
+    /**
+     * 只读技能访问：SQL 与导出参数都在这里写死，不经过端点授权，也不发布到公共服务。
+     * 读之前先等事务与索引队列落盘，保证刚打的标签、刚写的内容查得到。
+     */
+    private readKernel;
+    /** 发现：带技能标签的文档，连同首个子块（frontmatter 代码块）的原文。 */
+    listSkills(kernelId: string, signal?: AbortSignal): Promise<SkillDocument[]>;
+    /** 加载：整篇导出，再列出同目录的文档作为附件。 */
+    readSkill(kernelId: string, docId: string, signal?: AbortSignal): Promise<SkillBody>;
     /** 会话从独立选择的规则核心接收内容，规则自身再筛选适用会话。 */
     acceptsReminder(kernelId: string, sessionId: string): boolean;
     publicState(): Promise<{

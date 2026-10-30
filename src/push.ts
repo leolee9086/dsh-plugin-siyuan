@@ -1,9 +1,17 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
-export type ReminderPush = { kernelId: string } & (
+/** 一条事务操作的可观察摘要；消费者只看自己关心的动作与负载。 */
+export interface PushOperation { readonly action: string; readonly data: unknown }
+export type KernelPush = { kernelId: string } & (
   { kind: 'ready' } | { kind: 'offline'; message?: string } |
-  { kind: 'change'; roots?: string[]; marker?: boolean });
-export type ReminderWatch = (listener: (event: ReminderPush) => void) => () => Promise<void>;
+  { kind: 'change'; roots?: string[]; operations: readonly PushOperation[] });
+export type KernelWatch = (listener: (event: KernelPush) => void) => () => Promise<void>;
+/** 把操作负载折成可搜索的文本；字符串原样，对象按 JSON。消费者拿它判断自己关心的标记。 */
+export function textOf(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === null || typeof value !== 'object') return '';
+  try { return JSON.stringify(value) ?? ''; } catch { return ''; }
+}
 interface Stream { ended: Promise<void>; dispose(): Promise<void> }
 interface Pause { reason: "authentication" | "permission" | "rate-limit" | "protocol"; message: string; retryAfterSeconds?: number }
 interface Port {
@@ -18,42 +26,51 @@ function record(value: unknown): Record<string, unknown> {
 const fullCommands = new Set(['syncMergeResult', 'reloaddoc', 'mount', 'openBox', 'closeBox', 'removeBox',
   'removeDoc', 'moveDoc', 'moveDocs', 'rename', 'docsImported', 'reloadUI',
   'create', 'createdailynote', 'createnotebook', 'heading2doc', 'li2doc']);
-function change(value: unknown): Omit<Extract<ReminderPush, { kind: 'change' }>, 'kernelId'> | undefined {
+/** 收集事务里的块操作；遇到未知动作返回 undefined，由调用方退回全量校准。 */
+function operations(value: unknown): PushOperation[] | undefined {
+  const transactions = Array.isArray(value) ? value : [];
+  const result: PushOperation[] = [];
+  for (const transaction of transactions) {
+    const items = record(transaction).doOperations;
+    if (!Array.isArray(items)) return undefined;
+    for (const operation of items) {
+      const item = record(operation);
+      const action = String(item.action);
+      // 移动可能同时影响两个文档，未知动作也不能按普通文本编辑忽略。
+      if (!['insert', 'update', 'delete', 'setAttrs', 'updateAttrs'].includes(action)) return undefined;
+      result.push({ action, data: item.data });
+    }
+  }
+  return result.length ? result : undefined;
+}
+function change(value: unknown): Omit<Extract<KernelPush, { kind: 'change' }>, 'kernelId'> | undefined {
   const message = record(value);
-  if (fullCommands.has(String(message.cmd))) return { kind: 'change' };
+  if (fullCommands.has(String(message.cmd))) return { kind: 'change', operations: [] };
   if (message.cmd !== 'transactions') return undefined;
   const roots = record(message.context).rootIDs;
   // 缺少可靠范围的事务做一次全量校准；普通通知不触发读取。
-  if (!Array.isArray(roots) || !roots.length || roots.some(id => typeof id !== 'string' || !/^\d{14}-[a-z0-9]{7}$/.test(id))) return { kind: 'change' };
-  const transactions = Array.isArray(message.data) ? message.data : [];
-  let marker = false;
-  for (const transaction of transactions) {
-    const operations = record(transaction).doOperations;
-    if (!Array.isArray(operations)) return { kind: 'change' };
-    for (const operation of operations) {
-      const item = record(operation);
-      if (typeof item.data === 'string' && item.data.includes('DSH-REMINDER')) marker = true;
-      // 移动可能同时影响两个文档，未知动作也不能按普通文本编辑忽略。
-      if (!['insert', 'update', 'delete', 'setAttrs', 'updateAttrs'].includes(String(item.action))) return { kind: 'change' };
-    }
+  if (!Array.isArray(roots) || !roots.length || roots.some(id => typeof id !== 'string' || !/^\d{14}-[a-z0-9]{7}$/.test(id))) {
+    return { kind: 'change', operations: [] };
   }
-  if (!transactions.length) return { kind: 'change' };
-  return { kind: 'change', roots: roots as string[], marker };
+  const collected = operations(message.data);
+  // 读不出操作细节时同样退回全量：宁可多校准一次，也不漏掉一次真实变化。
+  if (!collected) return { kind: 'change', operations: [] };
+  return { kind: 'change', roots: roots as string[], operations: collected };
 }
 
 /** 每核心一条只读推送连接；消费者只收到失效通知，不接触 socket 或凭据。 */
-export class ReminderPushHub {
-  private listeners = new Set<(event: ReminderPush) => void>();
+export class KernelPushHub {
+  private listeners = new Set<(event: KernelPush) => void>();
   private runs = new Map<string, { controller: AbortController; done: Promise<void>; ready: boolean }>();
   private retiring = new Set<Promise<void>>();
   // 暂停随核心保留；撤销订阅、端点授权和普通配置保存都不解除。
   private paused = new Map<string, Pause>();
   private closed = false;
   constructor(private port: Port) {}
-  private emit(event: ReminderPush) {
+  private emit(event: KernelPush) {
     for (const listener of this.listeners) listener(event);
   }
-  watch: ReminderWatch = listener => {
+  watch: KernelWatch = listener => {
     if (this.closed) throw new Error('思源推送已卸载');
     this.listeners.add(listener);
     for (const [kernelId, run] of this.runs) if (run.ready) listener({ kernelId, kind: 'ready' });

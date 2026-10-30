@@ -62,7 +62,7 @@ for (const status of [401, 403, 429] as const) {
     await manager.initialize({ apiUrl: server.apiUrl, token: 'fixture-old', timeoutMs: 1000 });
     const other = await manager.saveKernel({ name: 'second', apiUrl: server.apiUrl, timeoutMs: 1000 });
     let ready = 0;
-    let stop = manager.watchReminders(event => { if (event.kind === 'ready') ready++; });
+    let stop = manager.watchKernels(event => { if (event.kind === 'ready') ready++; });
     await until(() => ready === 2);
     const snapshot = (id: string) => manager.readReminderBlocks(id, undefined, new AbortController().signal);
     await assert.rejects(snapshot('local'), new RegExp(String(status)));
@@ -75,7 +75,7 @@ for (const status of [401, 403, 429] as const) {
     assert.ok(!pause?.message.includes('fixture-private-response'));
     await stop();
     const replay: string[] = [];
-    stop = manager.watchReminders(event => replay.push(event.kind));
+    stop = manager.watchKernels(event => replay.push(event.kind));
     assert.deepEqual(replay, ['offline', 'offline']);
     const kernel = (await manager.publicState()).kernels.find(item => item.id === 'local')!;
     const endpoint = manager.endpoints('local', { query: '/api/query/sql' }).items[0]!;
@@ -180,7 +180,7 @@ test('WS握手限流暂停自动重连，HTTP日期提示保留，实际凭据�
   const manager = managerFor(t);
   await manager.initialize({ apiUrl: 'http://127.0.0.1:' + address.port, token: 'fixture-old' });
   let paused = false, ready = false;
-  const stop = manager.watchReminders(event => {
+  const stop = manager.watchKernels(event => {
     if (event.kind === 'offline' && event.message) paused = true;
     if (event.kind === 'ready') ready = true;
   });
@@ -232,7 +232,7 @@ test('提交后订阅通知失败不会撤回已持久化配置和凭据', async
   const manager = managerFor(t, domain, tokens);
   await manager.initialize({ apiUrl: server.apiUrl, token: 'fixture-old' });
   let ready = false, failNotification = false;
-  const stop = manager.watchReminders(event => {
+  const stop = manager.watchKernels(event => {
     if (event.kind === 'ready') ready = true;
     if (event.kind === 'offline' && failNotification) {
       failNotification = false; throw new Error('fixture notification failure');

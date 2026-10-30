@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ReminderService } from 'dsh-context-care/reminders';
-import type { ReminderWatch } from './push.js';
+import { type KernelWatch } from './push.js';
 declare const Options: z.ZodObject<{
     refreshMs: z.ZodDefault<z.ZodNumber>;
 }, z.core.$strict>;
@@ -14,7 +14,7 @@ declare function documents(input: unknown): {
 declare function options(raw: unknown): {
     refreshMs: number;
 };
-declare function attach(service: Pick<ReminderService, 'connectDocuments'>, config: z.infer<typeof Options>, readBlocks: (kernelId: string, roots: string[] | undefined, signal: AbortSignal) => Promise<unknown[]>, report: (message: string) => void, kernels: () => string[], accepts: (kernelId: string, sessionId: string) => boolean, watch: ReminderWatch): {
+declare function attach(service: Pick<ReminderService, 'connectDocuments'>, config: z.infer<typeof Options>, readBlocks: (kernelId: string, roots: string[] | undefined, signal: AbortSignal) => Promise<unknown[]>, report: (message: string) => void, kernels: () => string[], accepts: (kernelId: string, sessionId: string) => boolean, watch: KernelWatch): {
     refresh: () => Promise<void>;
     dispose(): Promise<void>;
 };

@@ -1,6 +1,16 @@
 # 更新日志
 
 
+## 0.8.3
+
+- 新增思源技能来源：带 `agent-skill` 标签的文档并进 DSH 技能目录，模型用现有的 `skill` 工具加载正文。提供方名 `siyuan`，rank 为 0，同名的思源技能排在磁盘技能之前。
+- 文档首个子块是 YAML frontmatter（`name` / `description` / 可选 `whenToUse`），其余是正文；发现用一条 SQL，加载走 `/api/export/exportMdContent`，剪掉文档标题与 frontmatter 代码块，末尾补一份带块 ID 的同级文档清单。
+- 失效由思源 WS 推送驱动：事务命中已知技能文档、操作负载出现 `agent-skill`，或这次事务没有可靠根范围时，才让技能注册表重新发现；不做定时查询。
+- 推送事件改为携带操作摘要（action 与 data），标记判断交给各消费者；修正块属性变更的负载是对象、而 `DSH-REMINDER` 标记此前按字符串匹配对属性变更从未生效的问题。
+- 规则编写教程按实现修正四处：`select` 的真实作用、`event.arguments` 的字段约束、`event.pattern` 的三态，以及新增第 9 节「引擎的硬校验」。
+
+验证：严格 TypeScript 编译（`tsc --noEmit`）、72 项行为测试、64 项隔离 HTTP/WS/MCP 协议测试和 5 个教程公共接口合同通过。
+
 ## 0.8.2
 
 - 错误投影保留脱敏后的类型名称、原始堆栈、错误码、原因链及聚合错误分支，重复投影保持原始调用位置。
