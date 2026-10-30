@@ -302,19 +302,32 @@ export class KernelManager {
       throw this.#secrets.error(error);
     } finally { if (connection) await this.release(connection); }
   }
-  /** 发现：带技能标签的文档，连同首个子块（frontmatter 代码块）的原文。 */
+  /**
+   * 发现：带技能标签的文档，声明是它的第一条子块。
+   *
+   * SQL 只负责找文档——块的 sort 不反映文档顺序，位置只能读实时接口。
+   */
   async listSkills(kernelId: string, signal?: AbortSignal): Promise<SkillDocument[]> {
-    const rows = await this.readKernel(kernelId, signal, call => call("/api/query/sql", {
-      stmt: `SELECT d.id AS doc, d.content AS title, c.content AS frontmatter`
-        + ` FROM blocks d JOIN blocks c ON c.parent_id = d.id`
-        + ` WHERE d.type = 'd' AND d.tag LIKE '%#${TAG}#%'`
-        + ` AND c.sort = (SELECT MIN(x.sort) FROM blocks x WHERE x.parent_id = d.id)`
-        + ` ORDER BY d.updated DESC LIMIT -1`,
-    }));
-    if (!Array.isArray(rows)) throw new Error("思源技能查询应返回块数组");
-    return rows.map(row => {
-      if (!isRecord(row) || typeof row.doc !== "string" || typeof row.frontmatter !== "string") throw new Error("思源技能行缺少字段");
-      return { id: row.doc, title: typeof row.title === "string" ? row.title : "", frontmatter: this.#secrets.text(row.frontmatter) };
+    return this.readKernel(kernelId, signal, async call => {
+      const rows = await call("/api/query/sql", {
+        stmt: `SELECT id, content AS title FROM blocks WHERE type = 'd' AND tag LIKE '%#${TAG}#%' ORDER BY updated DESC LIMIT -1`,
+      });
+      if (!Array.isArray(rows)) throw new Error("思源技能查询应返回块数组");
+      const documents: SkillDocument[] = [];
+      for (const row of rows) {
+        if (!isRecord(row) || typeof row.id !== "string") throw new Error("思源技能行缺少 ID");
+        const children = await call("/api/block/getChildBlocks", { id: row.id });
+        if (!Array.isArray(children) || children.length === 0) continue;
+        const first = children[0];
+        // 没有 frontmatter 代码块的文档不构成技能声明，跳过而不是猜。
+        if (!isRecord(first) || first.type !== "c" || typeof first.content !== "string") continue;
+        documents.push({
+          id: row.id,
+          title: typeof row.title === "string" ? row.title : "",
+          frontmatter: this.#secrets.text(first.content),
+        });
+      }
+      return documents;
     });
   }
   /** 加载：整篇导出，再列出同目录的文档作为附件。 */

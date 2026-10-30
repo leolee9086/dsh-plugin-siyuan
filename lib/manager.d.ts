@@ -109,7 +109,11 @@ export declare class KernelManager {
      * 读之前先等事务与索引队列落盘，保证刚打的标签、刚写的内容查得到。
      */
     private readKernel;
-    /** 发现：带技能标签的文档，连同首个子块（frontmatter 代码块）的原文。 */
+    /**
+     * 发现：带技能标签的文档，声明是它的第一条子块。
+     *
+     * SQL 只负责找文档——块的 sort 不反映文档顺序，位置只能读实时接口。
+     */
     listSkills(kernelId: string, signal?: AbortSignal): Promise<SkillDocument[]>;
     /** 加载：整篇导出，再列出同目录的文档作为附件。 */
     readSkill(kernelId: string, docId: string, signal?: AbortSignal): Promise<SkillBody>;
