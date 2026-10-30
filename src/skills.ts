@@ -155,11 +155,11 @@ export class SiYuanSkills implements SkillProvider {
       invocation: candidate.invocation,
       source: candidate.source,
       provider: PROVIDER,
-      // 模型读到技能时应该知道它从哪来、该改哪：改思源文档，别去文件系统找。
+      // 说明来源与修改方式，但不点名具体工具：可用工具由宿主决定，这里是能力的陈述。
       resourceBase: {
         kind: "opaque",
-        description: `本技能存放在思源笔记 ${directory}/，主文档 ${locator.docId}。`
-          + `要改技能内容就改那份思源文档（siyuan_query 读、siyuan_update 改），不要改文件系统。`
+        description: `本技能存放在思源笔记 ${directory}/，主文档块 ID 是 ${locator.docId}。`
+          + `要改技能内容就改这份思源文档，不要去文件系统里找对应文件。`
           + `同级附件见正文末尾的清单。`,
       },
       content: stripFrontmatter(body.markdown) + attachmentSection(body.attachments),

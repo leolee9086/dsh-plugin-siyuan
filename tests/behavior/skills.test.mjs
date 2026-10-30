@@ -59,9 +59,10 @@ test('get 剪掉 frontmatter 并补上附件清单', async () => {
   assert.ok(!loaded.content.includes('name: good-skill'));
   assert.ok(loaded.content.includes('规程/自查.spec.md → 20261030143115-eeeeeee'));
   assert.equal(loaded.resourceBase.kind, 'opaque');
-  // 读到技能就该知道改哪：主文档 ID + 不要改文件系统。
+  // 读到技能就该知道改哪：主文档 ID + 不要改文件系统，且不点名具体工具。
   assert.ok(loaded.resourceBase.description.includes('20261030143115-aaaaaaa'));
-  assert.ok(loaded.resourceBase.description.includes('不要改文件系统'));
+  assert.ok(loaded.resourceBase.description.includes('不要去文件系统'));
+  assert.ok(!/siyuan_\w+/.test(loaded.resourceBase.description));
 });
 
 test('observe 只在技能集可能变化时返回 true', async () => {
