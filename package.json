@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-siyuan",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "思源连接管理与 DSH 工具箱协同：核心目录、五个业务工具、697条 HTTP 契约、MCP 工具发现与逐端点授权",
   "author": "leolee9086",
   "repository": {
