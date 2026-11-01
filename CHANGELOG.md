@@ -1,6 +1,11 @@
 # 更新日志
 
 
+## 0.8.9
+
+- 修复安装版里点「归档并导入思源」报 `cannot get property "sessionPersistence" without inject`：会话服务改为在插件的 `inject` 里声明，直接用 `ctx.sessions` / `ctx.sessionPersistence`，不再反射取服务。
+- 会话类型按 `@deepseek-ai/dsh-session` / `@deepseek-ai/dsh-session-persistence` 的 `0.2.1-rc.5` 引入。这两个包把尚未发布的 `@deepseek-ai/dsh-type-meta` 声明成 peer，`pnpm-workspace.yaml` 里用 overrides 排除它。
+
 ## 0.8.8
 
 - 新增「归档并导入思源」：侧栏会话菜单多一条，点一下先把会话归档，再把整段会话渲染成思源文档。归档沿用宿主 `archiveSession`，失败就不导入。

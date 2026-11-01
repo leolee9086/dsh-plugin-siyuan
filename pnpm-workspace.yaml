@@ -1,3 +1,7 @@
+# 会话类型包把尚未发布的 @deepseek-ai/dsh-type-meta 声明成 peer，
+# 自动安装会 404；这里明确不要这个 peer。
+overrides:
+  '@deepseek-ai/dsh-type-meta': '-'
 minimumReleaseAgeExclude:
   - '@leolee9086/dsh-rule-engine@0.8.0'
   - '@leolee9086/sac-path-router@0.2.0'

@@ -7,10 +7,12 @@ import type {} from "@deepseek-ai/dsh-user-approval";
 import type {} from "@deepseek-ai/dsh-sandbox-policy";
 import type {} from "@deepseek-ai/dsh-host-webserver";
 import type {} from "@deepseek-ai/dsh-client-connection";
+import type {} from "@deepseek-ai/dsh-session";
+import type {} from "@deepseek-ai/dsh-session-persistence";
 import type { ReminderService } from "dsh-context-care/reminders";
 import { callKernel } from "./api.js";
 import { rebec } from "./rebec.js";
-import { readSessionParts, sessionServices } from "./session-log.js";
+import { readSessionParts } from "./session-log.js";
 import type { SessionParts } from "./session-import.js";
 import { SiYuanConnection } from "./connection.js";
 import { rpcTool } from "./rpc-tool.js";
@@ -22,7 +24,7 @@ import { SiYuanSkills } from "./skills.js";
 import { toolDef, requiredText as text, requiredId as id, optionalText, contentType, type ToolArgs } from "./tool.js";
 
 export const name = "dsh-plugin-siyuan";
-export const inject = ["tools", "storageDomain", "credentials"];
+export const inject = ["tools", "storageDomain", "credentials", "sessions", "sessionPersistence"];
 export const SERVICE = "siyuan";
 
 // Only plugin-owned services augment Cordis; platform services come from their real packages.
@@ -201,7 +203,8 @@ export async function apply(ctx: Context, rawConfig: unknown) {
   });
   // 导入前先 flush 活会话，再按持久化读句柄取头和事件；日志格式与渲染都交给 dsh-session-sy。
   const sessionImport = {
-    readSession: (sessionId: string, signal?: AbortSignal) => readSessionParts(sessionServices(ctx), sessionId, signal),
+    readSession: (sessionId: string, signal?: AbortSignal) =>
+      readSessionParts({ sessions: ctx.sessions, persistence: ctx.sessionPersistence }, sessionId, signal),
     render: (parts: SessionParts, spin: boolean, assets: string | undefined) => rebec().render(parts, spin, assets),
   };
   // 与 gateway 同样延迟挂载界面路由，headless 模式不依赖 webServer。
