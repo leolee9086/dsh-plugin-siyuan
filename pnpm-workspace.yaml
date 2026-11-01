@@ -1,3 +1,4 @@
 minimumReleaseAgeExclude:
   - '@leolee9086/dsh-rule-engine@0.8.0'
   - '@leolee9086/sac-path-router@0.2.0'
+  - dsh-session-sy@0.1.0

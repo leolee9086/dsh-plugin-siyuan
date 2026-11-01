@@ -18,8 +18,8 @@ importers:
         specifier: ^8.20.0
         version: 8.20.0
       dsh-session-sy:
-        specifier: file:../dsh-session-sy
-        version: file:../dsh-session-sy
+        specifier: ^0.1.0
+        version: 0.1.0
       json-rpc-2.0:
         specifier: ^1.8.1
         version: 1.8.1
@@ -501,8 +501,8 @@ packages:
     version: 0.14.18
     engines: {node: '>=22.19.0'}
 
-  dsh-session-sy@file:../dsh-session-sy:
-    resolution: {directory: ../dsh-session-sy, type: directory}
+  dsh-session-sy@0.1.0:
+    resolution: {integrity: sha512-W++8otBU5T3owS7LW89wfa4pZONJAZKz73nQ1IX4g26GPWR4vymB0yyUjViRVWytnoHAmEKaY78U+l+nIxDgpQ==}
     hasBin: true
 
   dunder-proto@1.0.1:
@@ -1458,7 +1458,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  dsh-session-sy@file:../dsh-session-sy: {}
+  dsh-session-sy@0.1.0: {}
 
   dunder-proto@1.0.1:
     dependencies:
