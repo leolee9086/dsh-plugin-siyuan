@@ -1,5 +1,6 @@
 /** 宿主共享的核心管理器。公共服务开放受控 invoke，提醒来源使用内部专用读取。 */
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import Ajv from "ajv";
 import type { CredentialProvider, CredentialRef } from "@deepseek-ai/dsh-credentials";
 import type { Domain as StorageDomain, KvTable } from "@deepseek-ai/dsh-storage-domain";
@@ -7,7 +8,8 @@ import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { SiYuanConnection } from "./connection.js";
 import { KernelPushHub, type KernelWatch } from "./push.js";
 import { TAG, type SkillAttachment, type SkillBody, type SkillDocument } from "./skills.js";
-import { normalizeConfig, KernelError, KernelAccessError, callKernel } from "./api.js";
+import { normalizeConfig, KernelError, KernelAccessError, callKernel, type Envelope } from "./api.js";
+import { importSession as runImport, type ImportResult, type SessionParts } from "./session-import.js";
 import { loadContract } from "./contract.js";
 import { SecretFilter } from "./secrets.js";
 import { EndpointPolicy, type Endpoint, type Decision } from "./policy.js";
@@ -16,6 +18,17 @@ import { toolDef, type ToolArgs, type ToolExecution } from "./tool.js";
 import { GatewayPublication, type PublicationPort } from "./gateway-publication.js";
 
 export type Execution = ToolExecution;
+/** 导入一段会话需要、但思源领域给不出的两件东西：会话日志与渲染。 */
+export interface SessionImportOptions {
+  /** 要导入的会话 ID；同一个 ID 也决定用哪个核心。 */
+  sessionId: string;
+  /** 会话标题，用作文档名。 */
+  title: string;
+  /** 读会话的头与事件。 */
+  readSession: (sessionId: string, signal?: AbortSignal) => Promise<SessionParts>;
+  /** 会话头与事件 → .sy 文档 JSON 文本。 */
+  render: (parts: SessionParts, spin: boolean, assets: string | undefined) => string;
+}
 export type { Kernel } from "./control-state.js";
 import { ControlState, type Kernel, type State, type Activity } from "./control-state.js";
 const { DOMAIN_SPEC, revokeBinding, replaceDiscovered, recoverActivity, selectKernel, requireBoundKernel, requireRevision } = ControlState;
@@ -345,6 +358,51 @@ export class KernelManager {
       if (!Array.isArray(rows)) throw new Error("思源附件查询应返回块数组");
       return { markdown: this.#secrets.text(exported.content), hpath: exported.hPath, attachments: siblingAttachments(exported.hPath, rows) };
     });
+  }
+  /**
+   * 把一段会话写成思源文档。
+   *
+   * 导入目标来自思源里的笔记本身（详见 session-import），这里只负责挑核心、连上去、把
+   * 内核调用和上传交出去；会话日志与渲染属于领域外，由调用方注入。
+   */
+  async importSession(options: SessionImportOptions, signal?: AbortSignal): Promise<ImportResult> {
+    await this.#writeChain;
+    signal?.throwIfAborted();
+    await this.refreshSecrets();
+    const kernel = await this.bindConnection(selectKernel(this.#state, undefined, options.sessionId).id, signal);
+    const connection = await this.connect(kernel, signal);
+    try {
+      return await runImport({
+        call: (path, payload, inner) => callKernel(connection, path, payload, inner ?? signal),
+        readSession: options.readSession,
+        render: options.render,
+        assetsDir: async inner => {
+          const info = await callKernel(connection, "/api/system/getWorkspaceInfo", {}, inner ?? signal);
+          if (!isRecord(info) || typeof info.workspaceDir !== "string") throw new Error("内核没有返回工作区目录，图片不会落地");
+          return join(info.workspaceDir, "data", "assets");
+        },
+        importZip: async (input, inner) => {
+          const form = new FormData();
+          form.set("notebook", input.notebook);
+          form.set("toPath", input.toPath);
+          form.set("file", new Blob([Uint8Array.from(input.bytes)], { type: "application/zip" }), input.filename);
+          const response = await connection.http.request("/api/import/importSY", {
+            method: "POST", body: form, signal: inner ?? signal,
+          });
+          if (!response.ok) {
+            const { status, statusText } = response;
+            await response.body?.cancel();
+            throw new Error(`/api/import/importSY 返回 HTTP ${status} ${statusText}`);
+          }
+          let envelope: Envelope<unknown>;
+          try { envelope = await response.json() as Envelope<unknown>; }
+          catch (error) { throw new Error("导入响应不是 JSON", { cause: error }); }
+          if (typeof envelope.code !== "number") throw new Error("导入响应缺少内核 code");
+          if (envelope.code !== 0) throw new KernelError("/api/import/importSY", envelope.code, envelope.msg);
+        },
+      }, { sessionId: options.sessionId, title: options.title, signal });
+    } catch (error) { throw this.#secrets.error(error); }
+    finally { await this.release(connection); }
   }
   /** 会话从独立选择的规则核心接收内容，规则自身再筛选适用会话。 */
   acceptsReminder(kernelId: string, sessionId: string) {

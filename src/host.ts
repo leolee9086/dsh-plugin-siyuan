@@ -9,6 +9,9 @@ import type {} from "@deepseek-ai/dsh-host-webserver";
 import type {} from "@deepseek-ai/dsh-client-connection";
 import type { ReminderService } from "dsh-context-care/reminders";
 import { callKernel } from "./api.js";
+import { rebec } from "./rebec.js";
+import { readSessionParts, sessionServices } from "./session-log.js";
+import type { SessionParts } from "./session-import.js";
 import { SiYuanConnection } from "./connection.js";
 import { rpcTool } from "./rpc-tool.js";
 import { KernelManager, managedTools, DOMAIN_SPEC } from "./manager.js";
@@ -196,6 +199,11 @@ export async function apply(ctx: Context, rawConfig: unknown) {
       registerTool: tool => scope.tools.register(tool),
     }), `${name}: gateway publication`);
   });
+  // 导入前先 flush 活会话，再按持久化读句柄取头和事件；日志格式与渲染都交给 dsh-session-sy。
+  const sessionImport = {
+    readSession: (sessionId: string, signal?: AbortSignal) => readSessionParts(sessionServices(ctx), sessionId, signal),
+    render: (parts: SessionParts, spin: boolean, assets: string | undefined) => rebec().render(parts, spin, assets),
+  };
   // 与 gateway 同样延迟挂载界面路由，headless 模式不依赖 webServer。
   ctx.inject(["webServer", "connection"], scope => {
     scope.effect(() => scope.webServer.register({ kind: "exact", path: ROUTE,
@@ -203,6 +211,6 @@ export async function apply(ctx: Context, rawConfig: unknown) {
         const connection = scope.get("connection");
         if (!connection || typeof connection.requestRejection !== "function") return 503;
         return connection.requestRejection(request);
-      }, manager) }), `${name}: management`);
+      }, manager, sessionImport) }), `${name}: management`);
   });
 }

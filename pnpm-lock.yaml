@@ -17,6 +17,9 @@ importers:
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
+      dsh-session-sy:
+        specifier: file:../dsh-session-sy
+        version: file:../dsh-session-sy
       json-rpc-2.0:
         specifier: ^1.8.1
         version: 1.8.1
@@ -497,6 +500,10 @@ packages:
     resolution: {integrity: sha512-coPntQHveuTXQ3O4wKjpCz1NgaV9hAoVaPRCRlG8dDZ4sQXammsJS/sSh2T5f6hR0DqZsIY3LPj+MKmdkHkSWg==, tarball: https://github.com/leolee9086/dsh-context-care/releases/download/v0.14.18/dsh-context-care-0.14.18.tgz}
     version: 0.14.18
     engines: {node: '>=22.19.0'}
+
+  dsh-session-sy@file:../dsh-session-sy:
+    resolution: {directory: ../dsh-session-sy, type: directory}
+    hasBin: true
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -1124,7 +1131,7 @@ snapshots:
   '@deepseek-ai/dsh-invariants@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.4
-      '@deepseek-ai/schemastery': 3.18.4
+      '@deepseek-ai/schemastery': 3.18.5
 
   '@deepseek-ai/dsh-llm@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)':
     dependencies:
@@ -1134,7 +1141,7 @@ snapshots:
       '@deepseek-ai/dsh-typert-protocol': 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)
       '@deepseek-ai/dsh-util-crypto': 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)
       '@deepseek-ai/dsh-util-values': 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)
-      '@deepseek-ai/schemastery': 3.18.4
+      '@deepseek-ai/schemastery': 3.18.5
       zod: 4.6.7
 
   '@deepseek-ai/dsh-ptc-runtime@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-sandbox@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-session@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)))':
@@ -1195,7 +1202,7 @@ snapshots:
     dependencies:
       '@deepseek-ai/cordis': 4.0.4
       '@deepseek-ai/dsh-invariants': 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)
-      '@deepseek-ai/schemastery': 3.18.4
+      '@deepseek-ai/schemastery': 3.18.5
 
   '@deepseek-ai/dsh-timeout@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)':
     dependencies:
@@ -1450,6 +1457,8 @@ snapshots:
       zod: 4.6.7
     transitivePeerDependencies:
       - supports-color
+
+  dsh-session-sy@file:../dsh-session-sy: {}
 
   dunder-proto@1.0.1:
     dependencies:

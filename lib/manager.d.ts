@@ -3,6 +3,7 @@ import type { Domain as StorageDomain, KvTable } from "@deepseek-ai/dsh-storage-
 import { SiYuanConnection } from "./connection.js";
 import { type KernelWatch } from "./push.js";
 import { type SkillBody, type SkillDocument } from "./skills.js";
+import { type ImportResult, type SessionParts } from "./session-import.js";
 import { type Endpoint, type Decision } from "./policy.js";
 declare const filterEndpoints: (items: Endpoint[], grants: import("./policy.js").Grant[], kernelId: string, filter: {
     query?: string;
@@ -31,6 +32,17 @@ declare const filterEndpoints: (items: Endpoint[], grants: import("./policy.js")
 import { toolDef, type ToolArgs, type ToolExecution } from "./tool.js";
 import { type PublicationPort } from "./gateway-publication.js";
 export type Execution = ToolExecution;
+/** 导入一段会话需要、但思源领域给不出的两件东西：会话日志与渲染。 */
+export interface SessionImportOptions {
+    /** 要导入的会话 ID；同一个 ID 也决定用哪个核心。 */
+    sessionId: string;
+    /** 会话标题，用作文档名。 */
+    title: string;
+    /** 读会话的头与事件。 */
+    readSession: (sessionId: string, signal?: AbortSignal) => Promise<SessionParts>;
+    /** 会话头与事件 → .sy 文档 JSON 文本。 */
+    render: (parts: SessionParts, spin: boolean, assets: string | undefined) => string;
+}
 export type { Kernel } from "./control-state.js";
 import { type State, type Activity } from "./control-state.js";
 declare const DOMAIN_SPEC: {
@@ -117,6 +129,13 @@ export declare class KernelManager {
     listSkills(kernelId: string, signal?: AbortSignal): Promise<SkillDocument[]>;
     /** 加载：整篇导出，再列出同目录的文档作为附件。 */
     readSkill(kernelId: string, docId: string, signal?: AbortSignal): Promise<SkillBody>;
+    /**
+     * 把一段会话写成思源文档。
+     *
+     * 导入目标来自思源里的笔记本身（详见 session-import），这里只负责挑核心、连上去、把
+     * 内核调用和上传交出去；会话日志与渲染属于领域外，由调用方注入。
+     */
+    importSession(options: SessionImportOptions, signal?: AbortSignal): Promise<ImportResult>;
     /** 会话从独立选择的规则核心接收内容，规则自身再筛选适用会话。 */
     acceptsReminder(kernelId: string, sessionId: string): boolean;
     publicState(): Promise<{

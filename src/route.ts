@@ -1,6 +1,6 @@
 /** 人工管理界面的同源路由。鉴权服务缺席时拒绝；请求体、凭据和异常对象不进入日志。 */
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { KernelManager } from "./manager.js";
+import type { KernelManager, SessionImportOptions } from "./manager.js";
 import type { Decision } from "./policy.js";
 export const ROUTE = "/api/siyuan-control";
 function json(response: ServerResponse, status: number, value: unknown) {
@@ -10,7 +10,11 @@ function json(response: ServerResponse, status: number, value: unknown) {
 }
 import { ManagementInput } from "./management-input.js";
 const { required } = ManagementInput;
-export function createRoute(requestRejection: (request: IncomingMessage) => 401 | 403 | 503 | undefined, manager: KernelManager) {
+export function createRoute(
+  requestRejection: (request: IncomingMessage) => 401 | 403 | 503 | undefined,
+  manager: KernelManager,
+  sessionImport: Pick<SessionImportOptions, "readSession" | "render">,
+) {
   return async (request: IncomingMessage, response: ServerResponse) => {
     try {
       // 宿主统一校验来源和身份；桌面转发已验证页面来源，送达此处时不携带 Origin。
@@ -45,6 +49,12 @@ export function createRoute(requestRejection: (request: IncomingMessage) => 401 
         case "registerGateway":
           if (typeof input.enabled !== "boolean") throw new Error("工具箱注册选择必须为布尔值");
           result = await manager.registerGateway(input.enabled); break;
+        case "importSession":
+          result = await manager.importSession({
+            sessionId: required(input.sessionId),
+            title: required(input.title),
+            ...sessionImport,
+          }); break;
         default: throw new Error("未知管理操作");
       }
       json(response, 200, manager.safe(result));
