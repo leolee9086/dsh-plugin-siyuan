@@ -15,6 +15,8 @@ function kernel(routes) {
     calls,
     call: async (path, payload) => {
       calls.push([path, payload]);
+      // 索引刷新是统一前置动作，不参与各用例的路由表。
+      if (path === "/api/sqlite/flushTransaction") return null;
       const handler = routes[path];
       if (handler === undefined) throw new Error(`未预期的调用 ${path}`);
       return handler(payload);
@@ -97,11 +99,17 @@ test("zip 里只有一个 deflate 条目，能原样解回", () => {
 test("导入按目标落盘，并用文档差集读回新文档", async () => {
   const seen = [];
   const { call, calls } = kernel({
-    "/api/query/sql": () => [SETTINGS_DOC],
+    "/api/query/sql": payload => {
+      if (payload.stmt.includes("custom-dsh-sessions")) return [SETTINGS_DOC];
+      if (payload.stmt.startsWith("SELECT path")) return [{ path: "/parent/设置.sy" }];
+      throw new Error(`未预期的查询 ${payload.stmt}`);
+    },
     "/api/attr/getBlockAttrs": () => ({}),
-    "/api/filetree/listDocsByPath": () => (seen.includes("import")
-      ? { files: [{ id: "20261101120000-abcdefg", name: "一次会话" }] }
-      : { files: [] }),
+    "/api/filetree/getIDsByHPath": payload => {
+      if (payload.path === "/知识库") return ["20261010154846-parent1"];
+      if (payload.path === "/知识库/一次会话") return ["20261101120000-abcdefg"];
+      return [];
+    },
   });
   const ports = {
     call,
@@ -111,7 +119,8 @@ test("导入按目标落盘，并用文档差集读回新文档", async () => {
       assert.equal(parts.header.id, "session-1");
       assert.equal(spin, false);
       assert.equal(assets, "D:/202610/data/assets");
-      return '{"Type":"NodeDocument","Children":[]}';
+      // 渲染器给的标题不是界面上的名字，导入必须用调用方传进来的那个。
+      return JSON.stringify({ Type: "NodeDocument", Properties: { title: "渲染器截的标题" }, Children: [] });
     },
     assetsDir: async () => "D:/202610/data/assets",
     importZip: async input => {
@@ -121,22 +130,23 @@ test("导入按目标落盘，并用文档差集读回新文档", async () => {
   };
   const result = await importSession(ports, { sessionId: "session-1", title: "一次会话" });
   assert.deepEqual(result, { docId: "20261101120000-abcdefg", path: "/知识库/一次会话" });
-  assert.deepEqual(calls.find(item => item[0] === "import"), ["import", NOTEBOOK, "/知识库", "一次会话.sy"]);
+  assert.deepEqual(calls.find(item => item[0] === "import"), ["import", NOTEBOOK, "/parent/设置.sy", "一次会话.sy.zip"]);
 });
 
 test("导入后没有新文档算失败，不静默当成功", async () => {
   const { call } = kernel({
-    "/api/query/sql": () => [SETTINGS_DOC],
+    "/api/query/sql": payload => (payload.stmt.includes("custom-dsh-sessions")
+      ? [SETTINGS_DOC] : [{ path: "/parent/设置.sy" }]),
     "/api/attr/getBlockAttrs": () => ({}),
-    "/api/filetree/listDocsByPath": () => ({ files: [] }),
+    "/api/filetree/getIDsByHPath": payload => (payload.path === "/知识库" ? ["20261010154846-parent1"] : []),
   });
   await assert.rejects(importSession({
     call,
     readSession: async () => ({ header: {}, events: [] }),
-    render: () => "{}",
+    render: () => JSON.stringify({ Type: "NodeDocument", Properties: { title: "t" }, Children: [] }),
     assetsDir: async () => undefined,
     importZip: async () => {},
-  }, { sessionId: "session-2", title: "t" }), /没有找到新文档/);
+  }, { sessionId: "session-2", title: "t" }), /没有找到文档/);
 });
 
 test("会话读不出来时直接失败", async () => {
@@ -147,7 +157,7 @@ test("会话读不出来时直接失败", async () => {
   await assert.rejects(importSession({
     call,
     readSession: async () => { throw new Error("会话不存在"); },
-    render: () => "{}",
+    render: () => JSON.stringify({ Type: "NodeDocument", Properties: { title: "t" }, Children: [] }),
     assetsDir: async () => undefined,
     importZip: async () => {},
   }, { sessionId: "session-3", title: "t" }), /会话不存在/);

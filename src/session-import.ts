@@ -99,6 +99,8 @@ async function latestDocument(ports: Pick<ImportPorts, "call">, attribute: strin
  * 可以覆盖父路径和 spin。没有设置文档时用最新日记所在的笔记本和目录，spin 默认关。
  */
 export async function resolveTarget(ports: Pick<ImportPorts, "call">, signal?: AbortSignal): Promise<ImportTarget> {
+  // 刚写下的设置文档要先过完事务和索引队列，才查得到。
+  await ports.call("/api/sqlite/flushTransaction", {}, signal);
   const settings = await latestDocument(ports, SESSIONS_ATTR, signal);
   if (settings !== undefined) {
     const attrs = record(await ports.call("/api/attr/getBlockAttrs", { id: settings.id }, signal), "设置文档属性");
@@ -123,15 +125,36 @@ export async function resolveTarget(ports: Pick<ImportPorts, "call">, signal?: A
   return { notebook: daily.notebook, hpath: parentPath(daily.hpath), spin: false };
 }
 
-/** 某个父路径下已有的文档，用来在导入后读回核对。 */
-async function listDocs(ports: Pick<ImportPorts, "call">, notebook: string, path: string, signal?: AbortSignal) {
-  const listed = record(await ports.call("/api/filetree/listDocsByPath", { notebook, path }, signal), "文档列表");
-  if (!Array.isArray(listed.files)) throw new Error("文档列表缺少 files");
-  return listed.files.map(file => {
-    const row = record(file, "文档行");
-    if (typeof row.id !== "string") throw new Error("文档行缺少 ID");
-    return { id: row.id, name: typeof row.name === "string" ? row.name : undefined };
-  });
+/**
+ * 父路径对应的文档文件路径。
+ *
+ * importSY 的 toPath 要的是父文档的文件路径（`/20261011135832-xxx.sy`），不是 hpath：
+ * 传 hpath 时不报错也不建文档（本机 3.8.9 实测）。所以先按 hpath 找到父文档 id，再取它的 path。
+ */
+async function parentFile(ports: Pick<ImportPorts, "call">, notebook: string, hpath: string, signal?: AbortSignal) {
+  if (hpath === "/") return "/";
+  const ids = await ports.call("/api/filetree/getIDsByHPath", { notebook, path: hpath }, signal);
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error(`父路径 ${hpath} 在思源里没有对应文档`);
+  const parentId = ids[0];
+  if (typeof parentId !== "string") throw new Error("父文档 id 不是字符串");
+  const rows = await ports.call("/api/query/sql", { stmt: `SELECT path FROM blocks WHERE id = '${parentId}'` }, signal);
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error(`父文档 ${parentId} 没有文件路径`);
+  const parent = record(rows[0], "父文档行");
+  if (typeof parent.path !== "string") throw new Error("父文档缺少文件路径");
+  return parent.path;
+}
+
+/**
+ * 用调用方给的会话标题当文档名。
+ *
+ * 思源拿 .sy 的 Properties.title 作为文档名，而 rebec 自己截的标题是正文里的一段，
+ * 不是这轮会话在界面上的名字；解析一次改掉这个字段，比让两边的叫法分叉要好。
+ */
+function withTitle(sy: string, title: string): string {
+  const document = record(JSON.parse(sy) as unknown, "渲染结果");
+  const properties = record(document.Properties, "渲染结果的文档属性");
+  properties.title = title;
+  return JSON.stringify(document);
 }
 
 const CRC_TABLE = (() => {
@@ -213,16 +236,20 @@ export async function importSession(ports: ImportPorts, request: ImportRequest):
   const target = await resolveTarget(ports, signal);
   const parts = await ports.readSession(sessionId, signal);
   const name = safeTitle(title, sessionId);
-  const before = await listDocs(ports, target.notebook, target.hpath, signal);
   const sy = ports.render(parts, target.spin, await ports.assetsDir(signal));
+  const toPath = await parentFile(ports, target.notebook, target.hpath, signal);
+  // zip 内的 .sy 必须放在一个目录里：放在压缩包根目录时内核直接判定「不是有效的 .sy.zip」（3.8.9 实测）。
   await ports.importZip({
     notebook: target.notebook,
-    toPath: target.hpath,
-    filename: `${name}.sy`,
-    bytes: zipSingle(`${name}.sy`, Buffer.from(sy, "utf8")),
+    toPath,
+    filename: `${name}.sy.zip`,
+    bytes: zipSingle(`parts/${name}.sy`, Buffer.from(withTitle(sy, name), "utf8")),
   }, signal);
-  const after = await listDocs(ports, target.notebook, target.hpath, signal);
-  const added = after.find(doc => !before.some(previous => previous.id === doc.id));
-  if (added === undefined) throw new Error(`导入完成，但在 ${target.hpath} 下没有找到新文档`);
-  return { docId: added.id, path: documentPath(target.hpath, name) };
+  // 导入不返回文档 id，但文档名就是 .sy 的标题，按完整路径能直接读回来。
+  const path = documentPath(target.hpath, name);
+  const ids = await ports.call("/api/filetree/getIDsByHPath", { notebook: target.notebook, path }, signal);
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error(`导入完成，但在 ${path} 没有找到文档`);
+  const docId = ids[0];
+  if (typeof docId !== "string") throw new Error("文档 id 不是字符串");
+  return { docId, path };
 }
