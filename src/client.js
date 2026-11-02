@@ -50,8 +50,9 @@ window.__ModuleLoader__.load({
 .sy-menu-icon{display:inline-flex;flex:none;width:14px;height:14px;align-items:center;justify-content:center;color:var(--dsw-alias-menu-icon,currentColor)}
 .sy-menu-icon svg{width:14px;height:14px}
 .sy-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sy-toast{position:fixed;right:20px;bottom:20px;z-index:9999;max-width:420px;padding:12px 16px;border-radius:8px;border:1px solid var(--sy-border);background:var(--sy-card);color:var(--sy-text);box-shadow:0 8px 28px rgba(0,0,0,.18);font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;overflow-wrap:anywhere}
-.sy-toast[data-tone=error]{border-color:var(--sy-danger);color:var(--sy-danger);background:var(--sy-danger-bg)}.sy-tool pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:400px;overflow:auto}.sy-tool .sy-bar{margin-bottom:8px}
+/* toast 挂在 body 上，拿不到 .sy-page 里定义的 --sy-* 变量，配色必须用全局的 --dsw-* 并带兜底。 */
+.sy-toast{position:fixed;right:20px;bottom:20px;z-index:9999;max-width:420px;padding:12px 16px;border-radius:8px;border:1px solid var(--dsw-alias-border-secondary,#dce3ec);background:var(--dsw-alias-bg-layer-2,#fff);color:var(--dsw-alias-text-primary,#243247);box-shadow:0 8px 28px rgba(0,0,0,.18);font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;overflow-wrap:anywhere}
+.sy-toast[data-tone=error]{border-color:var(--dsw-alias-state-error-primary,#b43b42);color:var(--dsw-alias-state-error-primary,#b43b42);background:var(--dsw-alias-bg-layer-2,#fff0f0)}.sy-tool pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:400px;overflow:auto}.sy-tool .sy-bar{margin-bottom:8px}
 @container(max-width:760px){.sy-columns{grid-template-columns:1fr}.sy-filters{grid-template-columns:1fr 1fr}.sy-endpoint{grid-template-columns:1fr}.sy-heading h2{font-size:20px}}
 @container(max-width:440px){.sy-heading{align-items:flex-start}.sy-heading>.sy-quiet{padding:5px 7px;font-size:12px}.sy-form-grid{grid-template-columns:1fr}.sy-tabs button{min-width:0;padding:7px 10px}.sy-record-head{flex-wrap:wrap}.sy-record-head>button{margin-left:auto}.sy-toolbar{gap:8px}.sy-filters{grid-template-columns:1fr}.sy-gateway summary{flex-wrap:wrap}}
 @media(prefers-color-scheme:dark){.sy-page,.sy-tool{--sy-bg:var(--dsw-alias-bg-layer-1,#171c24);--sy-card:var(--dsw-alias-bg-layer-2,#212833);--sy-text:var(--dsw-alias-text-primary,#e2e8f2);--sy-muted:var(--dsw-alias-label-secondary,#a0aec0);--sy-border:var(--dsw-alias-border-secondary,#364150);--sy-accent:#86adf4;--sy-tint:#263953;--sy-success:#87cba5;--sy-success-bg:#203b30;--sy-danger:#f3a0a4;--sy-danger-bg:#422a30;--sy-warn:#e8c183;--sy-warn-bg:#413623}.sy-page .sy-primary{color:#142339}.sy-page .sy-primary:hover:not(:disabled){background:#a1bef6;color:#142339}}
@@ -66,8 +67,12 @@ window.__ModuleLoader__.load({
         async function archiveAndImport(sessionId, displayTitle) {
           try { await scope.uiWorkspace.archiveSession(sessionId); }
           catch (error) {
+            // 会话还在跑是可恢复的：宿主拒绝归档并给出活动信息，这里要让人知道下一步做什么，
+            // 而不是把拒绝和真失败混成一句「归档没有完成」。
             const message = error && error.message ? error.message : String(error);
-            toast(`归档没有完成：${message}`, "error");
+            const code = error && error.code ? String(error.code) : "";
+            const running = code.includes("session-active") || message.includes("session-active");
+            toast(running ? "会话还在运行，先停止再归档" : `归档没有完成：${message}`, "error");
             return;
           }
           try {
