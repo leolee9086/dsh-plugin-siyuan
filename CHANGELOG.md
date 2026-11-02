@@ -1,6 +1,10 @@
 # 更新日志
 
 
+## 0.8.10
+
+- 「归档并导入思源」菜单项与 ui-primitives 的 `MenuItemButton` 对齐：14px 图标槽、13px/20px 文字、`6px 8px` 内边距、34px 行高，悬停和键盘焦点共用同一个 hover 背景，键盘聚焦不再带默认描边。此前只有一行文字，行高、字号和对齐都跟旁边的菜单项对不上。
+
 ## 0.8.9
 
 - 修复安装版里点「归档并导入思源」报 `cannot get property "sessionPersistence" without inject`：会话服务改为在插件的 `inject` 里声明，直接用 `ctx.sessions` / `ctx.sessionPersistence`，不再反射取服务。

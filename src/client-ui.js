@@ -340,12 +340,20 @@ export function createClientUI(React, { get, post, icon }) {
   function ArchiveImportMenuItem({ sessionId, displayTitle, useMenuOpenState, archiveAndImport }) {
     const [, setMenuOpen] = useMenuOpenState();
     const [busy, setBusy] = React.useState(false);
-    return h("button", { type: "button", role: "menuitem", className: "sy-menu-item", disabled: busy,
-      onClick: () => {
-        setMenuOpen(false);
-        setBusy(true);
-        Promise.resolve(archiveAndImport(sessionId, displayTitle)).finally(() => setBusy(false));
-      } }, busy ? "归档并导入中…" : "归档并导入思源");
+    // 结构和间距照 ui-primitives 的 MenuItemButton：图标 14px、文字 13px、行高 20px、内边距 6px 8px。
+    return h("div", { className: "sy-menu-row" },
+      h("button", { type: "button", role: "menuitem", className: "sy-menu-item", disabled: busy,
+        onClick: () => {
+          setMenuOpen(false);
+          setBusy(true);
+          Promise.resolve(archiveAndImport(sessionId, displayTitle)).finally(() => setBusy(false));
+        } },
+        h("span", { className: "sy-menu-icon", "aria-hidden": "true" },
+          h("svg", { viewBox: "0 0 16 16", width: 14, height: 14, fill: "none", stroke: "currentColor",
+            strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" },
+            h("path", { d: "M3.5 2.5h5L12 6v7a.5.5 0 0 1-.5.5h-8A.5.5 0 0 1 3 13V3a.5.5 0 0 1 .5-.5Z" }),
+            h("path", { d: "M8.5 2.5V6H12" }))),
+        h("span", { className: "sy-menu-label" }, busy ? "归档并导入中…" : "归档并导入思源")));
   }
   return Object.freeze({ Main, Activity, Icon, KernelForm, EndpointPanel, ActivityView, ToolCall, GatewayPanel, ArchiveImportMenuItem });
 }
