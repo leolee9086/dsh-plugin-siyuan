@@ -34,8 +34,8 @@ export interface SessionParts {
 export interface ImportPorts {
   /** 在已绑定的内核上执行一次调用，返回内核信封里的 data。 */
   call: (path: string, payload: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
-  /** 读会话的头与事件；会话不存在时抛错。 */
-  readSession: (sessionId: string, signal?: AbortSignal) => Promise<SessionParts>;
+  /** 读会话的头与事件；大会话按事件区间分成多段，会话不存在时抛错。 */
+  readSession: (sessionId: string, signal?: AbortSignal) => Promise<SessionParts[]>;
   /** rebec：会话头与事件 → .sy 文档 JSON 文本。 */
   render: (parts: SessionParts, spin: boolean, assets: string | undefined) => string;
   /** 工作区资源目录（<workspaceDir>/data/assets）；取不到就不落图片。 */
@@ -51,9 +51,15 @@ export interface ImportRequest {
   signal?: AbortSignal;
 }
 
-export interface ImportResult {
+/** 导入出来的一篇文档。 */
+export interface ImportDocument {
   docId: string;
   path: string;
+}
+
+/** 一次导入的产物：会话太长时会拆成多篇，一篇对应一段事件。 */
+export interface ImportResult {
+  documents: ImportDocument[];
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -226,30 +232,38 @@ export function zipSingle(name: string, bytes: Uint8Array): Buffer {
 }
 
 /**
- * 导入一篇会话。
+ * 导入一段会话，必要时拆成多篇。
  *
- * 先记下父路径下已有的文档，再导入，最后按 id 差集找出新文档——`importSY` 不返回文档 id，
- * 只能这样读回。找不到新文档就当失败，不静默返回成功。
+ * 一个渲染成几百 MB 的会话没法当一条字符串处理（napi 转不了、V8 也存不下），
+ * 所以按事件区间分出来的每一段各渲染一篇文档，标题带序号。
+ * `importSY` 不返回文档 id，导入后按完整路径逐篇读回；任一篇读不回来就算失败。
  */
 export async function importSession(ports: ImportPorts, request: ImportRequest): Promise<ImportResult> {
   const { sessionId, title, signal } = request;
   const target = await resolveTarget(ports, signal);
   const parts = await ports.readSession(sessionId, signal);
+  if (parts.length === 0) throw new Error(`会话 ${sessionId} 没有可导入的事件`);
   const name = safeTitle(title, sessionId);
-  const sy = ports.render(parts, target.spin, await ports.assetsDir(signal));
   const toPath = await parentFile(ports, target.notebook, target.hpath, signal);
-  // zip 内的 .sy 必须放在一个目录里：放在压缩包根目录时内核直接判定「不是有效的 .sy.zip」（3.8.9 实测）。
-  await ports.importZip({
-    notebook: target.notebook,
-    toPath,
-    filename: `${name}.sy.zip`,
-    bytes: zipSingle(`parts/${name}.sy`, Buffer.from(withTitle(sy, name), "utf8")),
-  }, signal);
-  // 导入不返回文档 id，但文档名就是 .sy 的标题，按完整路径能直接读回来。
-  const path = documentPath(target.hpath, name);
-  const ids = await ports.call("/api/filetree/getIDsByHPath", { notebook: target.notebook, path }, signal);
-  if (!Array.isArray(ids) || ids.length === 0) throw new Error(`导入完成，但在 ${path} 没有找到文档`);
-  const docId = ids[0];
-  if (typeof docId !== "string") throw new Error("文档 id 不是字符串");
-  return { docId, path };
+  const assets = await ports.assetsDir(signal);
+  const documents: ImportDocument[] = [];
+  for (const [index, part] of parts.entries()) {
+    // 文档名里不能带「/」：zip 条目名会把它当成目录分隔符。所以用序号而不是「1/3」。
+    const partName = parts.length === 1 ? name : `${name}（${index + 1}）`;
+    const sy = ports.render(part, target.spin, assets);
+    // zip 内的 .sy 必须放在一个目录里：放在压缩包根目录时内核直接判定「不是有效的 .sy.zip」（3.8.9 实测）。
+    await ports.importZip({
+      notebook: target.notebook,
+      toPath,
+      filename: `${partName}.sy.zip`,
+      bytes: zipSingle(`parts/${partName}.sy`, Buffer.from(withTitle(sy, partName), "utf8")),
+    }, signal);
+    const path = documentPath(target.hpath, partName);
+    const ids = await ports.call("/api/filetree/getIDsByHPath", { notebook: target.notebook, path }, signal);
+    if (!Array.isArray(ids) || ids.length === 0) throw new Error(`导入完成，但在 ${path} 没有找到文档`);
+    const docId = ids[0];
+    if (typeof docId !== "string") throw new Error("文档 id 不是字符串");
+    documents.push({ docId, path });
+  }
+  return { documents };
 }

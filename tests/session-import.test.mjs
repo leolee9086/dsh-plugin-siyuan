@@ -113,7 +113,7 @@ test("导入按目标落盘，并用文档差集读回新文档", async () => {
   });
   const ports = {
     call,
-    readSession: async () => ({ header: { id: "session-1" }, events: [] }),
+    readSession: async () => [{ header: { id: "session-1" }, events: [] }],
     render: (parts, spin, assets) => {
       seen.push("render");
       assert.equal(parts.header.id, "session-1");
@@ -129,7 +129,7 @@ test("导入按目标落盘，并用文档差集读回新文档", async () => {
     },
   };
   const result = await importSession(ports, { sessionId: "session-1", title: "一次会话" });
-  assert.deepEqual(result, { docId: "20261101120000-abcdefg", path: "/知识库/一次会话" });
+  assert.deepEqual(result, { documents: [{ docId: "20261101120000-abcdefg", path: "/知识库/一次会话" }] });
   assert.deepEqual(calls.find(item => item[0] === "import"), ["import", NOTEBOOK, "/parent/设置.sy", "一次会话.sy.zip"]);
 });
 
@@ -142,11 +142,39 @@ test("导入后没有新文档算失败，不静默当成功", async () => {
   });
   await assert.rejects(importSession({
     call,
-    readSession: async () => ({ header: {}, events: [] }),
+    readSession: async () => [{ header: {}, events: [] }],
     render: () => JSON.stringify({ Type: "NodeDocument", Properties: { title: "t" }, Children: [] }),
     assetsDir: async () => undefined,
     importZip: async () => {},
   }, { sessionId: "session-2", title: "t" }), /没有找到文档/);
+});
+
+test("会话太长时按事件分段，每段一篇文档", async () => {
+  const { call, calls } = kernel({
+    "/api/query/sql": payload => (payload.stmt.includes("custom-dsh-sessions")
+      ? [SETTINGS_DOC] : [{ path: "/parent/设置.sy" }]),
+    "/api/attr/getBlockAttrs": () => ({}),
+    "/api/filetree/getIDsByHPath": payload => {
+      if (payload.path === "/知识库") return ["20261010154846-parent1"];
+      if (payload.path.startsWith("/知识库/一次会话")) return ["20261101120000-abcdefg"];
+      return [];
+    },
+  });
+  const result = await importSession({
+    call,
+    readSession: async () => [
+      { header: {}, events: [] },
+      { header: {}, events: [] },
+      { header: {}, events: [] },
+    ],
+    render: () => JSON.stringify({ Type: "NodeDocument", Properties: { title: "x" }, Children: [] }),
+    assetsDir: async () => undefined,
+    importZip: async input => { calls.push(["import", input.filename]); },
+  }, { sessionId: "session-4", title: "一次会话" });
+  assert.equal(result.documents.length, 3);
+  // 文档名里不能出现「/」：zip 条目名会把它当目录分隔符。
+  assert.deepEqual(calls.filter(item => item[0] === "import").map(item => item[1]),
+    ["一次会话（1）.sy.zip", "一次会话（2）.sy.zip", "一次会话（3）.sy.zip"]);
 });
 
 test("会话读不出来时直接失败", async () => {

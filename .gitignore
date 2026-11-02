@@ -4,5 +4,7 @@ releases/
 *.tgz
 # 本地工作记录与验证产物；可分发文档放 docs/，运行时代码放 lib/。
 /.local/
+# 临时验证产物（大会话渲染出来的 .sy 有几百 MB，绝不能进仓库）
+/.tmp-*/
 /artifacts/
 /*.log

@@ -16,8 +16,8 @@ export interface SessionParts {
 export interface ImportPorts {
     /** 在已绑定的内核上执行一次调用，返回内核信封里的 data。 */
     call: (path: string, payload: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
-    /** 读会话的头与事件；会话不存在时抛错。 */
-    readSession: (sessionId: string, signal?: AbortSignal) => Promise<SessionParts>;
+    /** 读会话的头与事件；大会话按事件区间分成多段，会话不存在时抛错。 */
+    readSession: (sessionId: string, signal?: AbortSignal) => Promise<SessionParts[]>;
     /** rebec：会话头与事件 → .sy 文档 JSON 文本。 */
     render: (parts: SessionParts, spin: boolean, assets: string | undefined) => string;
     /** 工作区资源目录（<workspaceDir>/data/assets）；取不到就不落图片。 */
@@ -36,9 +36,14 @@ export interface ImportRequest {
     title: string;
     signal?: AbortSignal;
 }
-export interface ImportResult {
+/** 导入出来的一篇文档。 */
+export interface ImportDocument {
     docId: string;
     path: string;
+}
+/** 一次导入的产物：会话太长时会拆成多篇，一篇对应一段事件。 */
+export interface ImportResult {
+    documents: ImportDocument[];
 }
 /** 文档标题里不能出现路径分隔符；换成全角斜杠，保持可读且不改层级。 */
 export declare function safeTitle(title: string, fallback: string): string;
@@ -61,9 +66,10 @@ export declare function crc32(bytes: Uint8Array): number;
  */
 export declare function zipSingle(name: string, bytes: Uint8Array): Buffer;
 /**
- * 导入一篇会话。
+ * 导入一段会话，必要时拆成多篇。
  *
- * 先记下父路径下已有的文档，再导入，最后按 id 差集找出新文档——`importSY` 不返回文档 id，
- * 只能这样读回。找不到新文档就当失败，不静默返回成功。
+ * 一个渲染成几百 MB 的会话没法当一条字符串处理（napi 转不了、V8 也存不下），
+ * 所以按事件区间分出来的每一段各渲染一篇文档，标题带序号。
+ * `importSY` 不返回文档 id，导入后按完整路径逐篇读回；任一篇读不回来就算失败。
  */
 export declare function importSession(ports: ImportPorts, request: ImportRequest): Promise<ImportResult>;

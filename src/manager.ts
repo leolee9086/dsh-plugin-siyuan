@@ -24,8 +24,8 @@ export interface SessionImportOptions {
   sessionId: string;
   /** 会话标题，用作文档名。 */
   title: string;
-  /** 读会话的头与事件。 */
-  readSession: (sessionId: string, signal?: AbortSignal) => Promise<SessionParts>;
+  /** 读会话的头与事件；大会话按事件区间分成多段。 */
+  readSession: (sessionId: string, signal?: AbortSignal) => Promise<SessionParts[]>;
   /** 会话头与事件 → .sy 文档 JSON 文本。 */
   render: (parts: SessionParts, spin: boolean, assets: string | undefined) => string;
 }
