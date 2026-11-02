@@ -2,7 +2,7 @@
 
 思源笔记的 DSH 插件：检索笔记、创建与修改内容，多核心连接配置、逐端点授权和会话活动记录。提供五个业务工具及一个核心目录工具，并可将 697 条 HTTP 契约按用途整理为 663 个工具，与发现的 MCP 工具一起注册到工具箱，按会话选择开启。
 
-DSH 思源对接插件 **0.8.14** 配合 context-care 0.14.18，分别选择会话默认操作核心与会话规则来源核心，未选择时均继承全局默认核心。提醒使用规则引擎共同的 `schemaVersion: 2` 声明，可按当前预设名称、模型等条件筛选接收者，并保留跨会话共享次数。`siyuan_kernels` 返回两类选择及其有效值，详情见 [更新日志](./CHANGELOG.md)。
+DSH 思源对接插件 **0.8.15** 配合 context-care 0.14.18，分别选择会话默认操作核心与会话规则来源核心，未选择时均继承全局默认核心。提醒使用规则引擎共同的 `schemaVersion: 2` 声明，可按当前预设名称、模型等条件筛选接收者，并保留跨会话共享次数。`siyuan_kernels` 返回两类选择及其有效值，详情见 [更新日志](./CHANGELOG.md)。
 
 **0.3.3** 常规 HTTP 扩展工具收到标准 `{code,msg,data}` JSON 响应时，成功直接返回 `data`，失败返回 `isError`、HTTP `status`、内核 `code`、`msg` 和 `data`。文件、代理、SSE、直接 JSON 等特殊接口保持各自的原始响应；通用 `siyuan_rpc` 继续提供完整 HTTP 结果。
 
@@ -219,7 +219,7 @@ export async function apply(ctx) {
 在 DSH 插件管理界面填写以下 GitHub 来源安装或升级。标签携带 Host、客户端及类型声明。安装或升级本身会触发一次 profile 重新组合，host 侧代码随即生效，不需要重启 DSH；浏览器侧刷新页面即可加载新的客户端脚本：
 
 ```text
-https://github.com/leolee9086/dsh-plugin-siyuan#v0.8.14
+https://github.com/leolee9086/dsh-plugin-siyuan#v0.8.15
 ```
 
 客户端通过 `./client` 和 `dsh.client` 声明加载。构建将官方思源 SVG 嵌入客户端，与宿主 JS、类型声明、契约一起放入 `lib/`。Host 接线从正式 DSH 包导入开发类型，提醒接口使用配套 context-care v0.14.18 发行归档的公开服务与来源类型，均以 `import type` 消除运行时依赖。
