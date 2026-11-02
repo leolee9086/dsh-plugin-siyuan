@@ -61,9 +61,15 @@ export declare function resolveTarget(ports: Pick<ImportPorts, "call">, signal?:
 /** 标准 CRC32（zip 头里用的那个）。 */
 export declare function crc32(bytes: Uint8Array): number;
 /**
- * 只放一个条目的 zip（deflate）。思源的 `importSY` 只认 zip，不认裸 .sy。
- * 自己写而不是引依赖：只需要「一个文件、一条记录」这一种形态。
+ * 多个条目的 zip（deflate）。思源的 `importSY` 只认 zip，不认裸 .sy。
+ *
+ * 一次导入多篇：连续多次调导入接口又慢又不稳，拆出来的每段应该打包在同一个 zip 里一起交出去。
  */
+export declare function zipFiles(files: readonly {
+    name: string;
+    bytes: Uint8Array;
+}[]): Buffer;
+/** 单条目 zip：`zipFiles` 的薄包装。 */
 export declare function zipSingle(name: string, bytes: Uint8Array): Buffer;
 /**
  * 导入一段会话，必要时拆成多篇。

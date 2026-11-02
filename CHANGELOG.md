@@ -1,6 +1,14 @@
 # 更新日志
 
 
+## 0.8.14
+
+- 修复大会话导入超时（`The operation was aborted due to timeout`）：导入是长任务，连接层默认 15 秒就 abort，`importSY` 改成由调用方管理超时。
+- zip 结构按内核实现对齐（`kernel/model/import.go` 的 `importSY0`）：解压后根目录必须**恰好只有一个目录**，`.sy` 放在它下面，否则直接判「不是有效的 .sy.zip」。
+- 多篇不能塞进同一个 zip：`importSY0` 用跨篇共享的 `blockIDs` 重新生成块 ID，分片出来的几段根 ID 相同，后一篇会复用前一篇的新 ID，`trees` 互相覆盖——实测一次导入 3 篇只建出 2 篇。所以一篇一个包。
+
+验证：78 项行为 + 77 项协议 + 5 个文档合同；真机把一个会话切成 3 段，逐段导入出 3 篇文档并逐篇读回后删除。
+
 ## 0.8.13
 
 - 修复超大会话导入失败（`Invalid string length` / `Failed to convert rust String into napi string`）。实测：173 MB 的会话日志渲染出 46575 个块、592 MB 的 `.sy`，超过 V8 的单字符串上限，napi 也转不了这么大的返回值。

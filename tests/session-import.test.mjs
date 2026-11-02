@@ -172,8 +172,10 @@ test("会话太长时按事件分段，每段一篇文档", async () => {
     importZip: async input => { calls.push(["import", input.filename]); },
   }, { sessionId: "session-4", title: "一次会话" });
   assert.equal(result.documents.length, 3);
-  // 文档名里不能出现「/」：zip 条目名会把它当目录分隔符。
-  assert.deepEqual(calls.filter(item => item[0] === "import").map(item => item[1]),
+  // 一篇一个包：内核的块 ID 重映射 map 跨篇共享，合并到一个 zip 会互相覆盖（实测 3 篇只建出 2 篇）。
+  const imports = calls.filter(item => item[0] === "import");
+  assert.equal(imports.length, 3);
+  assert.deepEqual(imports.map(item => item[1]),
     ["一次会话（1）.sy.zip", "一次会话（2）.sy.zip", "一次会话（3）.sy.zip"]);
 });
 
