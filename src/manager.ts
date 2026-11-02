@@ -7,7 +7,7 @@ import type { Domain as StorageDomain, KvTable } from "@deepseek-ai/dsh-storage-
 import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { SiYuanConnection } from "./connection.js";
 import { KernelPushHub, type KernelWatch } from "./push.js";
-import { TAG, type SkillAttachment, type SkillBody, type SkillDocument } from "./skills.js";
+import { TAG, type SkillBody, type SkillDocument, type SkillLink } from "./skills.js";
 import { normalizeConfig, KernelError, KernelAccessError, callKernel, type Envelope } from "./api.js";
 import { importSession as runImport, type ImportResult, type SessionParts } from "./session-import.js";
 import { loadContract } from "./contract.js";
@@ -67,18 +67,17 @@ function resourceIds(value: unknown, result = new Set<string>()): string[] {
   else if (value && typeof value === "object") Object.values(value).forEach(item => resourceIds(item, result));
   return [...result];
 }
-/** 同目录文档里排除目录和技能自身：目录的特征是它下面还挂着别的文档。 */
-function siblingAttachments(hpath: string, rows: unknown[]): SkillAttachment[] {
-  const prefix = hpath.replace(/\/[^/]*$/, "") + "/";
-  const items: { id: string; hpath: string }[] = [];
-  for (const row of rows) {
-    if (!isRecord(row) || typeof row.id !== "string" || typeof row.hpath !== "string") throw new Error("思源附件行缺少字段");
-    items.push({ id: row.id, hpath: row.hpath });
-  }
-  const paths = items.map(item => item.hpath);
-  return items
-    .filter(item => item.hpath !== hpath && !paths.some(other => other.startsWith(item.hpath + "/")))
-    .map(item => ({ path: item.hpath.slice(prefix.length), id: item.id }));
+/** 查询回来的引用行 → 链接清单。ID 是块 ID，标题是块内容或文档标题。 */
+function linkRows(rows: unknown): SkillLink[] {
+  if (!Array.isArray(rows)) throw new Error("思源引用查询应返回块数组");
+  return rows.map(row => {
+    if (!isRecord(row) || typeof row.id !== "string") throw new Error("思源引用行缺少 ID");
+    return {
+      id: row.id,
+      title: typeof row.title === "string" ? row.title : "",
+      ...(typeof row.hpath === "string" ? { hpath: row.hpath } : {}),
+    };
+  });
 }
 
 export class KernelManager {
@@ -343,7 +342,12 @@ export class KernelManager {
       return documents;
     });
   }
-  /** 加载：整篇导出，再列出同目录的文档作为附件。 */
+  /**
+   * 加载：整篇导出，再取它在思源里的链接关系。
+   *
+   * 两个方向都保持块级：正向是本文档（含所有子块）引用到的块，反向是引用了本文档任一块的块。
+   * 反向用思源自己的 getBacklink2；正向没有出链接口，用 refs 索引里的真实引用记录。
+   */
   async readSkill(kernelId: string, docId: string, signal?: AbortSignal): Promise<SkillBody> {
     if (!/^\d{14}-[a-z0-9]{7}$/.test(docId)) throw new Error("技能文档 ID 无效");
     return this.readKernel(kernelId, signal, async call => {
@@ -351,12 +355,47 @@ export class KernelManager {
       if (!isRecord(exported) || typeof exported.content !== "string" || typeof exported.hPath !== "string") {
         throw new Error("思源标准 Markdown 响应缺少正文或路径");
       }
-      const directory = exported.hPath.replace(/\/[^/]*$/, "");
-      const rows = await call("/api/query/sql", {
-        stmt: `SELECT id, hpath FROM blocks WHERE type = 'd' AND hpath LIKE '${directory.replace(/'/g, "''")}/%' ORDER BY hpath LIMIT -1`,
-      });
-      if (!Array.isArray(rows)) throw new Error("思源附件查询应返回块数组");
-      return { markdown: this.#secrets.text(exported.content), hpath: exported.hPath, attachments: siblingAttachments(exported.hPath, rows) };
+      return {
+        markdown: this.#secrets.text(exported.content),
+        hpath: exported.hPath,
+        forward: await this.#forwardLinks(call, docId),
+        backward: await this.#backwardLinks(call, docId),
+      };
+    });
+  }
+  /**
+   * 正向链接：本文档（含所有子块）发出的引用。
+   *
+   * refs 表里 `root_id` 是引用方文档、`def_block_id` 是被引用的块——这是索引记录的真实 ID，
+   * 不从正文正则去猜引用语法。
+   */
+  async #forwardLinks(
+    call: (path: string, payload: Record<string, unknown>) => Promise<unknown>, docId: string,
+  ): Promise<SkillLink[]> {
+    return linkRows(await call("/api/query/sql", {
+      stmt: `SELECT DISTINCT r.def_block_id AS id, b.content AS title, b.hpath AS hpath FROM refs r JOIN blocks b ON b.id = r.def_block_id WHERE r.root_id = '${docId}' LIMIT 200`,
+    }));
+  }
+  /**
+   * 反向链接：用思源自己的 getBacklink2，不自己查 refs 表。
+   *
+   * 它返回的就是引用面板的数据，每一项是引用本文档某个块的块，保持原样往下传。
+   */
+  async #backwardLinks(
+    call: (path: string, payload: Record<string, unknown>) => Promise<unknown>, docId: string,
+  ): Promise<SkillLink[]> {
+    const listed = await call("/api/ref/getBacklink2", {
+      id: docId, k: "", mk: "", sort: "3", mSort: "3",
+      includeMentions: false, containChildren: false, refDefCandidates: false,
+    });
+    if (!isRecord(listed) || !Array.isArray(listed.backlinks)) throw new Error("思源反向链接响应缺少 backlinks");
+    return listed.backlinks.map(item => {
+      if (!isRecord(item) || typeof item.id !== "string") throw new Error("思源反向链接行缺少 ID");
+      return {
+        id: item.id,
+        title: typeof item.name === "string" ? item.name : "",
+        ...(typeof item.hPath === "string" ? { hpath: item.hPath } : {}),
+      };
     });
   }
   /**

@@ -127,7 +127,12 @@ export declare class KernelManager {
      * SQL 只负责找文档——块的 sort 不反映文档顺序，位置只能读实时接口。
      */
     listSkills(kernelId: string, signal?: AbortSignal): Promise<SkillDocument[]>;
-    /** 加载：整篇导出，再列出同目录的文档作为附件。 */
+    /**
+     * 加载：整篇导出，再取它在思源里的链接关系。
+     *
+     * 两个方向都保持块级：正向是本文档（含所有子块）引用到的块，反向是引用了本文档任一块的块。
+     * 反向用思源自己的 getBacklink2；正向没有出链接口，用 refs 索引里的真实引用记录。
+     */
     readSkill(kernelId: string, docId: string, signal?: AbortSignal): Promise<SkillBody>;
     /**
      * 把一段会话写成思源文档。

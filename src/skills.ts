@@ -25,19 +25,22 @@ export interface SkillDocument {
   readonly frontmatter: string;
 }
 
-/** 一篇技能的同级资料：正文里的相对路径靠它落到具体块。 */
-export interface SkillAttachment {
-  /** 相对技能文档父目录的路径。 */
-  readonly path: string;
+/** 一条引用关系：ID 是块 ID，标题是块内容或文档标题，hpath 是它所在的文档。 */
+export interface SkillLink {
   readonly id: string;
+  readonly title: string;
+  readonly hpath?: string;
 }
 
-/** 加载一层：正文与它引用的同级文档。 */
+/** 加载一层：正文与它在思源里的链接关系。 */
 export interface SkillBody {
   readonly markdown: string;
   /** 技能文档自己的 hpath，用于拼资源说明。 */
   readonly hpath: string;
-  readonly attachments: readonly SkillAttachment[];
+  /** 本文档（含所有子块）引用到的块。 */
+  readonly forward: readonly SkillLink[];
+  /** 引用了本文档任一块的块。 */
+  readonly backward: readonly SkillLink[];
 }
 
 /** 宿主侧读取端口：SQL 与导出参数由实现写死，调用方不能提交任意查询。 */
@@ -89,10 +92,21 @@ export function stripFrontmatter(markdown: string): string {
   return text.slice(block[0].length).replace(/^\s+/, "");
 }
 
-/** 正文写的是同目录下的相对路径，模型不知道相对谁，所以在末尾补一份带块 ID 的清单。 */
-function attachmentSection(list: readonly SkillAttachment[]): string {
-  if (!list.length) return "";
-  return ["", "## 附件（思源文档）", "", ...list.map(item => `- ${item.path} → ${item.id}`), ""].join("\n");
+/**
+ * 正文里的块引用只有 ID，模型看不出那是哪篇文档，所以在末尾补一份带标题的链接清单。
+ *
+ * 这是文档之间的引用关系，不是「附件」：一份技能没有附件这个概念，同目录的文档也不一定相关。
+ */
+function linkSection(forward: readonly SkillLink[], backward: readonly SkillLink[]): string {
+  if (!forward.length && !backward.length) return "";
+  const line = (item: SkillLink) => {
+    const title = item.title || item.id;
+    return `- ${title}${item.hpath === undefined ? "" : ` — ${item.hpath}`} → ${item.id}`;
+  };
+  const lines = ["", "## 链接（思源笔记）", ""];
+  if (forward.length) lines.push("**正向链接**（本文档引用的块）：", "", ...forward.map(line), "");
+  if (backward.length) lines.push("**反向链接**（引用了本文档的块）：", "", ...backward.map(line), "");
+  return lines.join("\n");
 }
 
 interface Locator {
@@ -160,9 +174,9 @@ export class SiYuanSkills implements SkillProvider {
         kind: "opaque",
         description: `本技能存放在思源笔记 ${directory}/，主文档块 ID 是 ${locator.docId}。`
           + `要改技能内容就改这份思源文档，不要去文件系统里找对应文件。`
-          + `同级附件见正文末尾的清单。`,
+          + `与它相连的文档见正文末尾的链接清单。`,
       },
-      content: stripFrontmatter(body.markdown) + attachmentSection(body.attachments),
+      content: stripFrontmatter(body.markdown) + linkSection(body.forward, body.backward),
     };
   }
 

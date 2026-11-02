@@ -13,7 +13,7 @@ function skills(documents, body) {
 }
 
 const document = (id, text) => ({ id, title: 'SKILL', frontmatter: text });
-const body = (markdown, attachments = [], hpath = '/n/skills/demo/SKILL') => ({ markdown, hpath, attachments });
+const body = (markdown, forward = [], backward = [], hpath = '/n/skills/demo/SKILL') => ({ markdown, hpath, forward, backward });
 
 test('frontmatter 解析单行键值与引号', () => {
   const parsed = frontmatter('name: demo-skill\ndescription: "带冒号: 的描述"\nwhenToUse: 当用户写插件时');
@@ -49,15 +49,23 @@ test('list 只收名字合法且描述非空的文档', async () => {
   assert.deepEqual(candidates[0].locator, { kernelId: 'local', docId: '20261030143115-aaaaaaa' });
 });
 
-test('get 剪掉 frontmatter 并补上附件清单', async () => {
+test('get 剪掉 frontmatter 并补上块级链接清单', async () => {
   const provider = skills([], body('```yaml\nname: good-skill\ndescription: 可用\n```\n\n# 正文\n看 规程/自查.spec.md',
-    [{ path: '规程/自查.spec.md', id: '20261030143115-eeeeeee' }]));
+    [{ id: '20261030143115-eeeeeee', title: '被引用的段落', hpath: '/n/另一篇' }],
+    [{ id: '20261030143115-fffffff', title: '引用本文的文档', hpath: '/n/引用方' }]));
   const candidate = { name: 'good-skill', description: '可用', invocation: { modelInvocable: true, userInvocable: true },
     source: 'custom', provider: PROVIDER, rank: 0, locator: { kernelId: 'local', docId: '20261030143115-aaaaaaa' } };
   const loaded = await provider.get(candidate, {});
   assert.ok(loaded.content.startsWith('# 正文'));
   assert.ok(!loaded.content.includes('name: good-skill'));
-  assert.ok(loaded.content.includes('规程/自查.spec.md → 20261030143115-eeeeeee'));
+  // 两个方向都要在，且保留块 ID 与所在文档——不归并到文档级。
+  assert.ok(loaded.content.includes('正向链接'));
+  assert.ok(loaded.content.includes('被引用的段落'));
+  assert.ok(loaded.content.includes('/n/另一篇'));
+  assert.ok(loaded.content.includes('20261030143115-eeeeeee'));
+  assert.ok(loaded.content.includes('反向链接'));
+  assert.ok(loaded.content.includes('引用本文的文档'));
+  assert.ok(loaded.content.includes('20261030143115-fffffff'));
   assert.equal(loaded.resourceBase.kind, 'opaque');
   // 读到技能就该知道改哪：主文档 ID + 不要改文件系统，且不点名具体工具。
   assert.ok(loaded.resourceBase.description.includes('20261030143115-aaaaaaa'));

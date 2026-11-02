@@ -18,18 +18,21 @@ export interface SkillDocument {
     /** 首个文档子块的原始 YAML 文本。 */
     readonly frontmatter: string;
 }
-/** 一篇技能的同级资料：正文里的相对路径靠它落到具体块。 */
-export interface SkillAttachment {
-    /** 相对技能文档父目录的路径。 */
-    readonly path: string;
+/** 一条引用关系：ID 是块 ID，标题是块内容或文档标题，hpath 是它所在的文档。 */
+export interface SkillLink {
     readonly id: string;
+    readonly title: string;
+    readonly hpath?: string;
 }
-/** 加载一层：正文与它引用的同级文档。 */
+/** 加载一层：正文与它在思源里的链接关系。 */
 export interface SkillBody {
     readonly markdown: string;
     /** 技能文档自己的 hpath，用于拼资源说明。 */
     readonly hpath: string;
-    readonly attachments: readonly SkillAttachment[];
+    /** 本文档（含所有子块）引用到的块。 */
+    readonly forward: readonly SkillLink[];
+    /** 引用了本文档任一块的块。 */
+    readonly backward: readonly SkillLink[];
 }
 /** 宿主侧读取端口：SQL 与导出参数由实现写死，调用方不能提交任意查询。 */
 export interface SkillSource {
