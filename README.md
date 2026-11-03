@@ -1,6 +1,6 @@
 # dsh-plugin-siyuan
 
-思源笔记的 DSH 插件：检索笔记、创建与修改内容，多核心连接配置、逐端点授权和会话活动记录。提供五个业务工具及一个核心目录工具，并可将 697 条 HTTP 契约按用途整理为 663 个工具，与发现的 MCP 工具一起注册到工具箱，按会话选择开启。
+思源笔记的 DSH 插件：检索笔记、创建与修改内容，多核心连接配置、逐端点授权和会话活动记录。提供六个业务工具及一个核心目录工具，并可将 697 条 HTTP 契约按用途整理为 663 个工具，与发现的 MCP 工具一起注册到工具箱，按会话选择开启。
 
 DSH 思源对接插件 **0.8.15** 配合 context-care 0.14.18，分别选择会话默认操作核心与会话规则来源核心，未选择时均继承全局默认核心。提醒使用规则引擎共同的 `schemaVersion: 2` 声明，可按当前预设名称、模型等条件筛选接收者，并保留跨会话共享次数。`siyuan_kernels` 返回两类选择及其有效值，详情见 [更新日志](./CHANGELOG.md)。
 
@@ -132,7 +132,7 @@ ORDER BY id LIMIT -1
 - HTTP 工具以 `siyuan_` 加路径末段命名，例如 `siyuan_sql`；重名才增加父路径，例如 `siyuan_setting_setSnippet` 和 `siyuan_snippet_setSnippet`。动态路径及同路径的不同用途用处理函数名区分。说明保留实际方法与完整路径，可按接口路径搜索。参数 `body` 使用原始请求 schema 及完整 `$defs`，支持 `query`、动态路由的 `pathParams` 和业务 `headers`。`kernelId` 可显式指定核心，省略时使用会话默认操作核心或全局默认核心。
 - MCP 工具直接使用发现的完整 `inputSchema`，参数就是该工具的原参数，固定调用发现它的核心。名称为 `siyuan_mcp_<核心ID>_<工具名>`，使不同核心的同名工具可区分；旧版目录缺少 schema 的记录会提示重新发现。
 - 新目录注册后，重新发现 MCP 会新增、更新或撤回对应工具。核心改名更新组标题，更换地址或删除核心会撤回该核心的 MCP 目录。注册选择保存到本机，重启后自动恢复；网关卸载时撤回扩展工具，重新连接后恢复。
-- 「撤回扩展工具」撤回 HTTP / MCP 注册并保存这一选择，五个基础工具继续可用。网关缺席时也可使用基础工具。
+- 「撤回扩展工具」撤回 HTTP / MCP 注册并保存这一选择，六个基础工具继续可用。网关缺席时也可使用基础工具。
 
 例如，搜索 `/api/query/sql` 的 HTTP 工具后，参数为：
 
@@ -148,7 +148,7 @@ HTTP 原始字节请求的 `body` 使用 base64。表单文件的名称填入 `b
 
 工具名保持稳定，普通授权修改和再次同步不会重建未变化的工具，也不会覆盖工具箱保存的会话开关。HTTP / MCP 扩展调用同样在「思源活动」中记录实际生成工具名，可通过 callId 定位来源调用。
 
-## 核心目录与五个业务工具
+## 核心目录与六个业务工具
 
 先调用 `siyuan_kernels`，参数为 `{}`，即可获得全部已配置核心的 `id`、`name`、`enabled`、`apiUrl` 和可选的绑定 `kernelPid`，以及 `defaultKernelId`、操作选择 `sessionKernelId` / `selectedKernelId`、规则来源选择 `sessionRuleKernelId` / `selectedRuleKernelId`。`session*` 表示会话显式选择，未指定时为 `null`；对应 `selected*` 表示回退全局默认后的有效选择，没有任何选择时为 `null`。停用核心仍在目录中，`enabled` 只表示配置开关。目录读取不探测在线状态，不扫描本机实例；即使没有默认核心或配置列表为空也可调用。返回的 ID 可用于业务工具的 `kernelId`。
 
@@ -159,9 +159,10 @@ HTTP 原始字节请求的 `body` 使用 base64。表单文件的名称填入 `b
 | `siyuan_create` | doc、block、append | 创建 Markdown 文档、插块、追加 |
 | `siyuan_update` | block、rename_doc | 整块替换、改文档标题 |
 | `siyuan_delete` | block、doc | 删除块或文档 |
+| `siyuan_import` | tree | 把本机 markdown 目录树写成思源文档树（可重复执行） |
 | `siyuan_rpc` | http、contract、plugin、mcp、ws、connection | 通用连接操作与离线契约发现 |
 
-五个业务工具可附带 `kernelId`；目录工具只接受空参数。`contract` 可离线发现契约和配置核心 ID，不连接内核，也不获得执行授权。示例中的 ID 需要替换为真实目标。
+六个业务工具可附带 `kernelId`；目录工具只接受空参数。`contract` 可离线发现契约和配置核心 ID，不连接内核，也不获得执行授权。示例中的 ID 需要替换为真实目标。
 
 ```json
 {"action":"notebooks","kernelId":"local"}
@@ -174,6 +175,8 @@ HTTP 原始字节请求的 `body` 使用 base64。表单文件的名称填入 `b
 ```
 
 创建文档返回 `docId`，插块、追加和更新返回 `blockIds`，并以 `blockIdScope: "transaction-operations"` 标明这些是内核事务操作 ID。一段 Markdown 可生成多个块而只返回一个操作 ID；ID 数量不是写入块数。写入成功与否依据内核响应。内容空白保留，更新接受空字符串。插块至少需要 `nextID`、`previousID` 或 `parentID`；追加需要 `parentID`。CRUD 检查 HTTP 与内核 `{code,msg,data}` 信封，索引或同步可能稍后更新，不因查询暂时无结果重发写入。
+
+`siyuan_import` 把本机目录直接写成文档树：`sourceDir` 是绝对路径，目录层级映射为文档层级，文件名去掉 `.md` 就是标题；`targetPath` 的每一层缺失时先补建同名空文档。`mode` 省略或为 `create` 时只建缺失的文档，已存在的按 hpath 跳过；`mode=replace` 用文件内容整篇覆盖同名文档。对应关系用实时接口 `getIDsByHPath` 判定，不依赖 SQL 索引；返回 `created` / `updated` / `skipped` 三组 hpath 与文件总数，重复执行不会多建文档。单篇超过 4 MiB 的文件不当作可导入文本。
 
 ```json
 {"channel":"contract","path":"/api/block/","limit":20,"includeSchema":true}

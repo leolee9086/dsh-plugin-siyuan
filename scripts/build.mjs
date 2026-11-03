@@ -36,9 +36,9 @@ const { SiYuanConnection } = await import(new URL("../.build-lib/connection.js",
 const { createTools } = await import(new URL("../.build-lib/host.js", import.meta.url));
 const connection = new SiYuanConnection({});
 try {
-  if (createTools(connection).length !== 5) throw new Error("构建产物未提供五个工具");
+  if (createTools(connection).length !== 6) throw new Error("构建产物未提供六个工具");
   if (connection.http.contract.endpoints.length !== 697) throw new Error("构建产物缺少完整端点契约");
 } finally { await connection.dispose(); }
 rmSync(output, { recursive: true, force: true });
 renameSync(staging, output);
-console.log("Built lib: five tools, 697 contracts, managed host, client and declarations included.");
+console.log("Built lib: six tools, 697 contracts, managed host, client and declarations included.");

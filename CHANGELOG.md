@@ -1,6 +1,11 @@
 # 更新日志
 
 
+## 未发布
+
+- 新增第六个业务工具 `siyuan_import`（`action: tree`）：把一个 markdown 目录树写成思源文档树。目录层级映射成文档层级，文件名去掉扩展名为标题，`targetPath` 逐层补建；`mode=create` 只建缺失文档，`mode=replace` 整篇覆盖同名文档。存在性用 `getIDsByHPath` 实时判定，不靠 SQL 索引；单篇 4 MiB 上限。
+- 目录树导入的纯规划拆到 `src/doc-import.ts`（标题与 hpath 拼装、祖先补齐、越界拒绝、新建/覆盖/跳过决策），`tests/doc-import.test.mjs` 直接测这些函数。工具数量断言同步改成六个。
+
 ## 0.8.15
 
 - 纠正 0.8.14 的判断：**一个 zip 里可以放多个 `.sy`**，一次导入多篇是可行的。之前导入 3 篇只建出 2 篇不是内核限制，是分片的构造问题——rebec 的块 ID 是「会话创建时间 + 每段都从 0 开始的序号」（`rebec/src/model.rs` 的 `IdGen`），几段共用一个 header 就会撞出完全相同的块 ID，而内核导入时跨篇共享一张 ID 重映射表，后一篇直接顶掉前一篇。

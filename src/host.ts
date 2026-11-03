@@ -1,4 +1,4 @@
-/** 第一批五个工具共享完整思源连接；数据原文在参数整理时保持不变。 */
+/** 这一组业务工具共享完整思源连接；数据原文在参数整理时保持不变。 */
 import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-tools";
 import type {} from "@deepseek-ai/dsh-storage-domain";
@@ -22,6 +22,7 @@ import { EndpointPolicy } from "./policy.js";
 import { ReminderSources } from "./rules.js";
 import { SiYuanSkills } from "./skills.js";
 import { toolDef, requiredText as text, requiredId as id, optionalText, contentType, type ToolArgs } from "./tool.js";
+import { docImportTool } from "./doc-import.js";
 
 export const name = "dsh-plugin-siyuan";
 export const inject = ["tools", "storageDomain", "credentials", "sessions", "sessionPersistence"];
@@ -128,6 +129,7 @@ export function createTools(connection: SiYuanConnection) {
       }
       return { deleted: blockIds(await kernel("/api/block/deleteBlock", { id: target }, signal)) };
     }),
+    docImportTool(kernel),
     rpcTool(connection),
   ];
 }

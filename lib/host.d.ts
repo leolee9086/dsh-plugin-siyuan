@@ -1,4 +1,4 @@
-/** 第一批五个工具共享完整思源连接；数据原文在参数整理时保持不变。 */
+/** 这一组业务工具共享完整思源连接；数据原文在参数整理时保持不变。 */
 import type { Context } from "@deepseek-ai/cordis";
 import type { ReminderService } from "dsh-context-care/reminders";
 import { SiYuanConnection } from "./connection.js";

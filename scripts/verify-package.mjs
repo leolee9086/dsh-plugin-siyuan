@@ -34,7 +34,7 @@ writeFileSync(portFile, JSON.stringify({ [process.pid]: new URL(server.apiUrl).p
 const connection = new SiYuanConnection({ portFile });
 try {
   const tools = createTools(connection);
-  assert.equal(tools.length, 5);
+  assert.equal(tools.length, 6);
   assert.equal(connection.http.contract.endpoints.length, 697);
   assert.equal(connection.config.apiUrl, "auto");
   assert.equal((await connection.discovery.status()).instances[0].apiUrl, server.apiUrl);

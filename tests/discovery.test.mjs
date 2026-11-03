@@ -55,7 +55,7 @@ test("桌面三平台按账户Home定位，缺少内核时契约和五工具仍�
   }
   const connection = new SiYuanConnection({ portFile: path.join(tmpdir(), "siyuan-missing", "port.json") });
   try {
-    assert.equal(createTools(connection).length, 5);
+    assert.equal(createTools(connection).length, 6);
     assert.ok((await connection.http.describe("POST", "/api/notebook/lsNotebooks")).spec);
     const tool = createTools(connection).find(tool => tool.name === "siyuan_rpc");
     assert.equal(JSON.parse((await tool.execute({ channel: "contract", limit: 1 })).summary).total, 697);

@@ -18,7 +18,7 @@ async function withTools(run) {
 }
 
 test("四个 CRUD 工具完成文档/块创建、查询、更新、删除，内容空白不丢失", () => withTools(async (call, server, tools) => {
-  assert.deepEqual(tools.map(tool => tool.name), ["siyuan_query", "siyuan_create", "siyuan_update", "siyuan_delete", "siyuan_rpc"]);
+  assert.deepEqual(tools.map(tool => tool.name), ["siyuan_query", "siyuan_create", "siyuan_update", "siyuan_delete", "siyuan_import", "siyuan_rpc"]);
   assert.equal((await call("siyuan_query", { action: "notebooks" })).notebooks[0].id, notebookId);
   const markdown = "  文档\n\n";
   assert.equal((await call("siyuan_create", { action: "doc", notebook: notebookId, path: "/test", markdown })).docId, docId);
@@ -50,7 +50,7 @@ test("四个 CRUD 工具完成文档/块创建、查询、更新、删除，内�
   await assert.rejects(call("siyuan_query", { action: "notebooks", extra: true }), /参数不合法/);
 }));
 
-test("第五工具覆盖契约发现、未知HTTP、上传下载、插件RPC、MCP和WS", () => withTools(async call => {
+test("第六工具覆盖契约发现、未知HTTP、上传下载、插件RPC、MCP和WS", () => withTools(async call => {
   const contract = await call("siyuan_rpc", { channel: "contract", path: "/api/block/getBlockKramdown", includeSchema: true });
   assert.ok(contract.total >= 1);
   assert.ok(contract.endpoints.find(spec => spec.path === "/api/block/getBlockKramdown").schema.$defs);

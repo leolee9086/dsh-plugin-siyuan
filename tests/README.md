@@ -5,7 +5,7 @@
 | 命令 | 范围 |
 | --- | --- |
 | `pnpm run test:behavior` | 严格 TypeScript 测试编译，端点策略、状态规则、请求输入、凭据过滤、提醒规则和 React 组件交互 |
-| `pnpm run test:protocol` | 连接库与五个工具的隔离 HTTP、WS、JSON-RPC 和 MCP 行为 |
+| `pnpm run test:protocol` | 连接库与六个工具的隔离 HTTP、WS、JSON-RPC 和 MCP 行为 |
 | `pnpm run test:documents` | README 和教程的五个完整 callout 经原生 I/O 与引擎公共注册接口验证 |
 
 ## 独立行为测试
@@ -33,6 +33,7 @@
 - `remote-recovery.test.ts`：代理路径前缀、GET/HEAD 有界重试、总超时、取消、长 Retry-After、429 不重试、写入与流式响应不重放。短超时断言先完成连接预热；取消时序以服务收到请求为起点。
 - `websocket-recovery.test.ts`：网络断线、心跳与恢复、握手 401/403/429、标准 unauthenticated 关闭及原样无效关闭帧的协议分类。
 - `access-pause.test.ts`：HTTP 拒绝停止存活 WS 和后续快照、跨重订阅暂停、核心间隔离、实际连接变更恢复、旧配置迟到响应隔离、WS 限流停止重连、Retry-After 日期、未配置 token 的访问语义；另覆盖配置写入失败的凭据补偿、空凭据条目恢复、同值重试，以及提交后通知失败不撤回已保存凭据。
+- `doc-import.test.mjs`：目录树导入的纯规划——标题与 hpath 拼装、祖先补齐、越界路径拒绝、新建/覆盖/跳过决策，以及逆归只收 markdown 且按名称排序。
 
 凭据测试只使用测试内合成值；内存存储和凭据端口属于插件自己的依赖接口。
 
