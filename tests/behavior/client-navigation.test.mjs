@@ -119,7 +119,7 @@ test("卡片主按钮打开思源侧栏，参数展开独立，侧栏定位显�
   }
 });
 
-test("暂停核心跳过自动检查，人工检查只请求一次且保持提醒暂停", async () => {
+test("人工检查只请求一次，服务端仍返回暂停时界面保留原因", async () => {
   const dom = new JSDOM('<div id="app"></div>');
   const previous = { window: globalThis.window, document: globalThis.document, act: globalThis.IS_REACT_ACT_ENVIRONMENT };
   globalThis.window = dom.window; globalThis.document = dom.window.document; globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -131,7 +131,7 @@ test("暂停核心跳过自动检查，人工检查只请求一次且保持提�
   const ui = createClientUI(React, { icon: 'fixture.svg',
     get: async () => structuredClone(state),
     post: async input => {
-      assert.equal(input.action, 'test'); assert.equal(input.kernelId, 'local'); calls++;
+      assert.equal(input.action, 'test'); assert.equal(input.kernelId, 'local'); assert.notEqual(input.automatic, true); calls++;
       if (deny) throw new Error('HTTP 429；稍后再检查');
       return { version: 'fixture-version', apiUrl: state.kernels[0].apiUrl, accessAvailable: true, credentialSent: true };
     } });

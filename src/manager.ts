@@ -306,6 +306,7 @@ export class KernelManager {
   private async readKernel<T>(kernelId: string, signal: AbortSignal | undefined,
     work: (call: (path: string, payload: Record<string, unknown>) => Promise<unknown>) => Promise<T>): Promise<T> {
     let connection: SiYuanConnection | undefined;
+    let revision: number | undefined;
     try {
       await this.#writeChain;
       signal?.throwIfAborted();
@@ -313,11 +314,13 @@ export class KernelManager {
       if (paused) throw new Error(paused.message);
       await this.refreshSecrets();
       const kernel = await this.bindConnection(kernelId, signal);
+      revision = this.#state.revision;
       connection = await this.connect(kernel, signal);
       const target = connection;
       await callKernel(target, "/api/sqlite/flushTransaction", {}, signal);
       return await work((path, payload) => callKernel(target, path, payload, signal));
     } catch (error) {
+      if (!signal?.aborted && revision === this.#state.revision) this.#push.pause(kernelId, error);
       throw this.#secrets.error(error);
     } finally { if (connection) await this.release(connection); }
   }
@@ -490,70 +493,43 @@ export class KernelManager {
         revokeBinding(state, kernelId);
       }
       state.kernels = [...state.kernels.filter(item => item.id !== kernelId), kernel];
-      // 凭据服务和配置存储是两个端口；配置提交失败时恢复凭据，让相同更新可以重试。
-      const refToken = refFor(kernelId, "token");
-      const refAuthCode = refFor(kernelId, "authCode");
-      let previousToken: string | undefined;
-      let previousAuthCode: string | undefined;
-      let credentialChanged = false;
-      let tokenWritten = false;
-      let authCodeWritten = false;
-
-      if (input.token !== undefined && input.token !== "") {
-        if (typeof input.token !== "string" || /[\r\n]/.test(input.token) || input.token.length > 8192) throw new Error("token 必须为单行文本");
-        const token = input.token.trim();
-        previousToken = (await this.credentials.resolve(refToken))?.value;
-        const changed = token !== (previousToken?.trim() ?? "");
-        if (changed) {
-          this.#secrets.remember(token); await this.credentials.set(refToken, token);
-          tokenWritten = true; credentialChanged = true;
-        }
-      } else if (input.clearToken === true) {
-        previousToken = (await this.credentials.resolve(refToken))?.value;
-        const changed = !!previousToken?.trim();
-        if (previousToken !== undefined) {
-          await this.credentials.unset(refToken);
-          tokenWritten = true;
-          if (changed) credentialChanged = true;
-        }
-      }
-
-      if (input.authCode !== undefined && input.authCode !== "") {
-        if (typeof input.authCode !== "string" || /[\r\n]/.test(input.authCode) || input.authCode.length > 8192) throw new Error("authCode 必须为单行文本");
-        const authCode = input.authCode.trim();
-        previousAuthCode = (await this.credentials.resolve(refAuthCode))?.value;
-        const changed = authCode !== (previousAuthCode?.trim() ?? "");
-        if (changed) {
-          this.#secrets.remember(authCode); await this.credentials.set(refAuthCode, authCode);
-          authCodeWritten = true; credentialChanged = true;
-        }
-      } else if (input.clearAuthCode === true) {
-        previousAuthCode = (await this.credentials.resolve(refAuthCode))?.value;
-        const changed = !!previousAuthCode?.trim();
-        if (previousAuthCode !== undefined) {
-          await this.credentials.unset(refAuthCode);
-          authCodeWritten = true;
-          if (changed) credentialChanged = true;
-        }
-      }
-
-      connectionChanged ||= credentialChanged;
-      // 仅补偿持久写入失败；提交后的订阅通知失败不能把凭据撤回旧版本。
-      try { await this.persist(state); }
-      catch (error) {
-        let rollbackFailed = false;
-        if (tokenWritten) {
-          try {
-            if (previousToken === undefined) await this.credentials.unset(refToken);
-            else await this.credentials.set(refToken, previousToken);
-          } catch {
-            rollbackFailed = true;
+      // 先校验两项输入并读取旧值，再写入；任何一步失败都补偿此前成功的凭据写入。
+      const changes: { ref: CredentialRef; previous: string | undefined; value: string | undefined }[] = [];
+      let credentialSubmitted = false;
+      for (const kind of ["token", "authCode"] as const) {
+        const raw = input[kind];
+        const clear = input[kind === "token" ? "clearToken" : "clearAuthCode"] === true;
+        if ((raw === undefined || raw === "") && !clear) continue;
+        let value: string | undefined;
+        if (raw !== undefined && raw !== "") {
+          if (typeof raw !== "string" || /[\r\n]/.test(raw) || raw.length > 8192 || !raw.trim()) {
+            throw new Error(kind + " 必须为非空单行文本");
           }
+          value = raw.trim();
+          this.#secrets.remember(value);
+          // 人工重新提交同一凭据也表示重试；普通留空保存不解除暂停。
+          credentialSubmitted = true;
         }
-        if (authCodeWritten) {
+        const ref = refFor(kernelId, kind);
+        const previous = (await this.credentials.resolve(ref))?.value;
+        if (previous !== undefined) this.#secrets.remember(previous);
+        if (value !== previous) changes.push({ ref, previous, value });
+      }
+      connectionChanged ||= credentialSubmitted || changes.length > 0;
+      const written: typeof changes = [];
+      try {
+        for (const change of changes) {
+          if (change.value === undefined) await this.credentials.unset(change.ref);
+          else await this.credentials.set(change.ref, change.value);
+          written.push(change);
+        }
+        await this.persist(state);
+      } catch (error) {
+        let rollbackFailed = false;
+        for (const change of written.reverse()) {
           try {
-            if (previousAuthCode === undefined) await this.credentials.unset(refAuthCode);
-            else await this.credentials.set(refAuthCode, previousAuthCode);
+            if (change.previous === undefined) await this.credentials.unset(change.ref);
+            else await this.credentials.set(change.ref, change.previous);
           } catch {
             rollbackFailed = true;
           }
@@ -666,7 +642,8 @@ export class KernelManager {
       } finally { await probe.dispose(); }
     });
   }
-  async inspectConnection(kernelId: string, discoverMcp = false) {
+  async inspectConnection(kernelId: string, discoverMcp = false, resumePush = true) {
+    await this.#writeChain;
     await this.refreshSecrets();
     const kernel = await this.bindConnection(kernelId);
     const revision = this.#state.revision;
@@ -674,8 +651,6 @@ export class KernelManager {
     try {
       const version = await callKernel(connection, "/api/system/version");
       if (typeof version !== "string") throw new Error("内核版本响应无效");
-      // version 是公开端点；若配置了 authCode，先确保获取会话 Cookie
-      await connection.http.ensureSession();
       // 受保护的只读接口确认访问能力，不能单凭成功响应证明代理透传了 token。
       const auth = await connection.json("/api/notebook/lsNotebooks", {});
       if (revision === this.#state.revision && (auth.status === 401 || auth.status === 403 || auth.status === 429)) {
@@ -723,7 +698,13 @@ export class KernelManager {
           requireRevision(revision, this.#state.revision, this.#closed, "MCP 发现期间配置已变化，请重新发现");
           const state = structuredClone(this.#state);
           replaceDiscovered(state, kernelId, this.#secrets.value(items));
-          await this.commit(state);
+          await this.commit(state, resumePush ? [kernelId] : []);
+        });
+      } else if (resumePush) {
+        // 自动 HTTP 检查不解除 WS 暂停；人工检查成功后才重新发起该核心的推送连接。
+        await this.serial(async () => {
+          requireRevision(revision, this.#state.revision, this.#closed, "检查期间配置已变化，请重新检查");
+          this.#push.resume(kernelId);
         });
       }
       return { apiUrl: this.#secrets.text(connection.config.apiUrl), version: this.#secrets.text(version), accessAvailable: true,

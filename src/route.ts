@@ -44,7 +44,7 @@ export function createRoute(
         case "declare": result = await manager.declare(input); break;
         case "instances": result = await manager.connectionInstances(required(input.kernelId)); break;
         case "selectInstance": result = await manager.selectInstance(required(input.kernelId), input.pid); break;
-        case "test": result = await manager.inspectConnection(required(input.kernelId)); break;
+        case "test": result = await manager.inspectConnection(required(input.kernelId), false, input.automatic !== true); break;
         case "discoverMcp": result = await manager.inspectConnection(required(input.kernelId), true); break;
         case "registerGateway":
           if (typeof input.enabled !== "boolean") throw new Error("工具箱注册选择必须为布尔值");

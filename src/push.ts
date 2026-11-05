@@ -93,10 +93,23 @@ export class KernelPushHub {
     }
     this.runs.clear();
   }
-  /** 只有成功提交的连接绑定更新可以解除指定核心的暂停。 */
+  /** 配置提交或人工重新提交凭据后，解除指定核心的暂停。 */
   reset(resumeFor: string[] = []) {
     this.stop();
     for (const kernelId of resumeFor) this.paused.delete(kernelId);
+    this.sync();
+  }
+  /** 人工访问检查通过后只恢复该核心，不中断其他核心的推送。 */
+  resume(kernelId: string) {
+    if (this.closed || !this.port.kernels().includes(kernelId) || !this.paused.has(kernelId)) return;
+    const run = this.runs.get(kernelId);
+    if (run) {
+      run.ready = false; run.controller.abort();
+      this.runs.delete(kernelId);
+      this.retiring.add(run.done);
+      void run.done.then(() => this.retiring.delete(run.done), () => this.retiring.delete(run.done));
+    }
+    this.paused.delete(kernelId);
     this.sync();
   }
   pausedState(kernelId: string) {

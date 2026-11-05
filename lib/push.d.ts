@@ -45,8 +45,10 @@ export declare class KernelPushHub {
     private emit;
     watch: KernelWatch;
     private stop;
-    /** 只有成功提交的连接绑定更新可以解除指定核心的暂停。 */
+    /** 配置提交或人工重新提交凭据后，解除指定核心的暂停。 */
     reset(resumeFor?: string[]): void;
+    /** 人工访问检查通过后只恢复该核心，不中断其他核心的推送。 */
+    resume(kernelId: string): void;
     pausedState(kernelId: string): {
         reason: "authentication" | "permission" | "rate-limit" | "protocol";
         message: string;

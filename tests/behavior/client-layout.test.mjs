@@ -6,6 +6,32 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createClientUI } from "../../lib/client-ui.js";
 
+test("保存失败保留两项密码，直接重试成功后清空并显示保存结果", async t => {
+  const state = { kernels: [{ ...kernel(), enabled: false }], defaultKernelId: "local" };
+  let fail = true; const saved = [];
+  const view = await mount(t, { get: async () => structuredClone(state), post: async input => {
+    assert.equal(input.action, "saveKernel"); saved.push(input);
+    if (fail) throw new Error("fixture persistence failure");
+    state.kernels[0].authCodeCredential = { configured: true, writable: true };
+    return { id: "local" };
+  } });
+  await view.click("编辑");
+  const token = view.document.querySelector('[name="siyuan-credential"]');
+  const authCode = view.document.querySelector('[name="siyuan-authcode"]');
+  token.value = "fixture-token"; authCode.value = "fixture-authcode";
+  await view.click("保存核心");
+  assert.equal(token.value, "fixture-token"); assert.equal(authCode.value, "fixture-authcode");
+  assert.match(view.document.querySelector('[role="alert"]').textContent, /fixture persistence failure/);
+  fail = false; await view.click("保存核心");
+  assert.equal(saved.length, 2);
+  for (const input of saved) { assert.equal(input.token, "fixture-token"); assert.equal(input.authCode, "fixture-authcode"); }
+  assert.equal(view.document.querySelector('[name="siyuan-credential"]').value, "");
+  assert.equal(view.document.querySelector('[name="siyuan-authcode"]').value, "");
+  assert.match(view.document.querySelector('.sy-ok').textContent, /核心配置已保存/);
+  assert.equal(view.document.querySelector('.sy-error'), null);
+});
+
+
 // 使用生产领域入口和真实 React，只注入界面已有的网络端口。
 async function mount(t, ports) {
   const dom = new JSDOM('<div id="app"></div>');
@@ -39,13 +65,14 @@ test("首次加载列出实例，旧PID失效仍可选择并刷新绑定", async
     return { version: "fixture-b", apiUrl: candidates[1].apiUrl };
   } });
   assert.deepEqual(calls.map(item => item.action), ["instances", "test"]);
+  assert.equal(calls.find(item => item.action === "test").automatic, true);
   assert.equal(view.document.querySelectorAll(".sy-instance").length, 2);
   assert.match(view.document.body.textContent, /旧 PID 已退出/);
   await view.click("连接 PID 300");
   assert.deepEqual(calls.find(item => item.action === "selectInstance"), { action: "selectInstance", kernelId: "local", pid: 300 });
   assert.match(view.document.querySelector('.sy-instance[data-selected="true"]').textContent, /PID 300/);
   assert.equal(view.document.querySelector('[aria-label="连接 PID 300"]').disabled, true);
-  assert.match(view.document.body.textContent, /已连接/);
+  assert.match(view.document.body.textContent, /HTTP 可用/);
 });
 
 test("暂停本机核心不自动发现，人工刷新只列实例而不重复检查", async t => {

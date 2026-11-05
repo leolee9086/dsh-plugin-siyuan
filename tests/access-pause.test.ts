@@ -80,7 +80,7 @@ for (const status of [401, 403, 429] as const) {
     const kernel = (await manager.publicState()).kernels.find(item => item.id === 'local')!;
     const endpoint = manager.endpoints('local', { query: '/api/query/sql' }).items[0]!;
     await manager.grant('local', endpoint.key, 'allow');
-    for (const patch of [{ name: 'renamed' }, { timeoutMs: 1500 }, { enabled: false }, { enabled: true }, { token: 'fixture-old' }]) {
+    for (const patch of [{ name: 'renamed' }, { timeoutMs: 1500 }, { enabled: false }, { enabled: true }, { token: '' }]) {
       await manager.saveKernel({ ...kernel, ...patch });
       assert.ok((await manager.publicState()).kernels.find(item => item.id === 'local')!.reminderPause);
     }
@@ -252,7 +252,7 @@ test('提交后订阅通知失败不会撤回已持久化配置和凭据', async
   await stop();
 });
 
-test('配置authCode后可通过loginAuth获得cookie并在WS和HTTP中认证', async t => {
+test('配置authCode后可通过loginAuth获得cookie并检查HTTP访问', async t => {
   let loginCalls = 0;
   const server = await remote(t, async (request, response) => {
     response.setHeader('content-type', 'application/json');

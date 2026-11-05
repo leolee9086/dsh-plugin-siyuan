@@ -1,7 +1,7 @@
 /** 思源 HTTP 转发。标准方法用 fetch，受 Fetch 规范限制的方法用 Node HTTP。 */
 import * as http from "node:http";
 import type { Duplex } from "node:stream";
-import type { ApiConfig } from "./api.js";
+import { type ApiConfig } from "./api.js";
 import { Contract, type EndpointSpec } from "./contract.js";
 import { KernelDiscovery } from "./discovery.js";
 export interface HttpOptions {
@@ -39,8 +39,9 @@ export declare class HttpConnection {
         url: (path: string) => URL;
         fetch: (input: RequestInfo | URL, init?: RequestInit, options?: HttpOptions) => Promise<Response>;
     }>;
-    /** 获取或用 authCode 刷新 Cookie Session；思源开启访问码或锁屏密码时 WS 和内部页面依赖此 Cookie。 */
+    /** 为当前连接登录一次；HTTP 和 WS 共用 Cookie，认证拒绝交给管理器暂停。 */
     ensureSession(signal?: AbortSignal): Promise<string | undefined>;
+    private ensureSessionAt;
     headers(input?: HeadersInit): Headers;
     signal(signal?: AbortSignal, timeoutMs?: number): AbortSignal;
     /** 原始 fetch 的 URL 必须属于这次解析的内核；会话消费者使用 bindFetch 固定目标。 */

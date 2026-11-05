@@ -4,7 +4,7 @@ import * as https from "node:https";
 import { Readable } from "node:stream";
 import type { Duplex } from "node:stream";
 import { createFetchEntry, RouterContext, type Router } from "@leolee9086/sac-path-router";
-import type { ApiConfig } from "./api.js";
+import { KernelLoginError, type ApiConfig } from "./api.js";
 import { Contract, type EndpointSpec, loadContract } from "./contract.js";
 import { KernelDiscovery } from "./discovery.js";
 import { sendRequest } from "./http-recovery.js";
@@ -85,39 +85,49 @@ export class HttpConnection {
     };
   }
 
-  /** 获取或用 authCode 刷新 Cookie Session；思源开启访问码或锁屏密码时 WS 和内部页面依赖此 Cookie。 */
+  /** 为当前连接登录一次；HTTP 和 WS 共用 Cookie，认证拒绝交给管理器暂停。 */
   async ensureSession(signal?: AbortSignal): Promise<string | undefined> {
+    if (!this.config.authCode) return undefined;
+    return this.ensureSessionAt(await this.endpoint(signal), signal);
+  }
+
+  private async ensureSessionAt(endpoint: string, signal?: AbortSignal): Promise<string | undefined> {
     if (!this.config.authCode) return undefined;
     if (this.sessionCookie) return this.sessionCookie;
     if (this.sessionPromise) return this.sessionPromise;
     const bounded = this.signal(signal);
     this.sessionPromise = (async () => {
-      try {
-        const endpoint = await this.endpoint(bounded);
-        const url = this.url("/api/system/loginAuth", endpoint);
-        const response = await this.send(new Request(url, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ authCode: this.config.authCode }),
-          signal: bounded,
-        }));
-        if (!response.ok) {
-          throw new Error(`/api/system/loginAuth 响应 HTTP ${response.status}`);
+      const url = this.url("/api/system/loginAuth", endpoint);
+      const response = await this.send(new Request(url, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ authCode: this.config.authCode }), signal: bounded, redirect: "manual",
+      }));
+      if (!response.ok) {
+        await response.body?.cancel();
+        if (response.status === 401 || response.status === 403 || response.status === 429) {
+          throw new KernelLoginError("思源访问码登录失败（HTTP " + response.status + "）", response.status, response.headers.get("retry-after"));
         }
-        const envelope = await response.json() as { code?: number; msg?: string };
-        if (envelope && typeof envelope.code === "number" && envelope.code !== 0) {
-          throw new Error(`思源访问授权码校验失败：${envelope.msg || `code=${envelope.code}`}`);
-        }
-        const setCookie = response.headers.get("set-cookie");
-        if (setCookie) {
-          this.sessionCookie = setCookie.split(";")[0]?.trim();
-        }
-        return this.sessionCookie ?? "";
-      } finally {
-        this.sessionPromise = undefined;
+        throw new Error("/api/system/loginAuth 响应 HTTP " + response.status);
       }
+      const envelope: unknown = await response.json().catch(() => { bounded.throwIfAborted(); return undefined; });
+      if (!envelope || typeof envelope !== "object" || !("code" in envelope) || typeof envelope.code !== "number") {
+        throw new KernelLoginError("思源访问码登录响应无效，请检查内核或代理");
+      }
+      if (envelope.code !== 0) {
+        throw new KernelLoginError(envelope.code === 1
+          ? "思源登录需要验证码或会话未能建立，请先在思源中完成登录，再人工重新检查连接"
+          : "思源访问授权码校验失败，请核对访问码后人工重新检查连接");
+      }
+      // 只取思源会话，代理附加的其他 Cookie 不能冒充登录成功。
+      const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]!.trim())
+        .find(value => /^siyuan=.+$/.test(value));
+      if (!cookie) throw new KernelLoginError("思源登录未返回有效的 siyuan 会话 Cookie，请检查内核或代理");
+      bounded.throwIfAborted();
+      this.sessionCookie = cookie;
+      return cookie;
     })();
-    return this.sessionPromise;
+    try { return await this.sessionPromise; }
+    finally { this.sessionPromise = undefined; }
   }
 
   headers(input?: HeadersInit): Headers {
@@ -149,9 +159,11 @@ export class HttpConnection {
     const target = new URL(merged.url);
     const base = new URL(endpoint);
     if (target.origin !== base.origin) throw new Error("连接层只接受已配置或已发现内核的地址");
+    const signal = this.signal(options.signal ?? merged.signal, options.timeoutMs);
+    if (target.pathname !== this.url("/api/system/loginAuth", endpoint).pathname) await this.ensureSessionAt(endpoint, signal);
     const request = new Request(merged, {
       headers: this.headers(merged.headers),
-      signal: this.signal(options.signal ?? merged.signal, options.timeoutMs),
+      signal,
       redirect: "manual",
     });
     // 每次调用的选项留在独立闭包，避免并发请求交换校验状态。
@@ -172,7 +184,8 @@ export class HttpConnection {
     const url = this.url(path, endpoint);
     if (["CONNECT", "TRACE", "TRACK"].includes(method) || (["GET", "HEAD"].includes(method) && options.body != null)) {
       // 虚拟 POST 只负责 BodyInit 编码；真实线上方法由 node:http 原样发送。
-      const encoded = new Request(url, { method: "POST", headers, body: options.body, signal, duplex: "half" } as RequestInit);
+      await this.ensureSessionAt(endpoint, signal);
+      const encoded = new Request(url, { method: "POST", headers: this.headers(headers), body: options.body, signal, duplex: "half" } as RequestInit);
       if (options.validate) await this.validateRaw(method, url, encoded);
       return this.nodeRequest(url, method, encoded.headers, encoded.body, signal);
     }
@@ -303,7 +316,9 @@ export class HttpConnection {
   /** 真正的 CONNECT 返回套接字和已收到的首段字节，不伪装成 fetch Response。 */
   async openTunnel(path: string, options: Omit<HttpOptions, "method" | "body"> = {}): Promise<Tunnel> {
     const signal = this.signal(options.signal, options.timeoutMs);
-    const url = await this.resolveUrl(path, signal);
+    const endpoint = await this.endpoint(signal);
+    await this.ensureSessionAt(endpoint, signal);
+    const url = this.url(path, endpoint);
     return new Promise((resolve, reject) => {
       const req = (url.protocol === "https:" ? https : http).request(url, {
         method: "CONNECT", headers: Object.fromEntries(this.headers(options.headers)), signal,

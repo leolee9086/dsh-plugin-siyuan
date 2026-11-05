@@ -40,6 +40,15 @@ export class KernelAccessError extends Error {
   }
 }
 
+/** 访问码登录拒绝和无效会话响应沿用访问暂停，避免后台反复撞认证。 */
+export class KernelLoginError extends KernelAccessError {
+  constructor(message: string, status: 401 | 403 | 429 = 401, retryAfter: string | null = null) {
+    super(status, retryAfter);
+    this.name = "KernelLoginError";
+    this.message = message;
+  }
+}
+
 export function normalizeConfig(raw: unknown): ApiConfig {
   if (raw !== undefined && (raw === null || typeof raw !== "object" || Array.isArray(raw))) {
     throw new TypeError("插件配置必须为对象");

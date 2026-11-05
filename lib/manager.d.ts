@@ -218,7 +218,7 @@ export declare class KernelManager {
     }>;
     /** 每次派发前重新发现，串行保存恢复结果；进行中的业务请求固定原目标。 */
     private bindConnection;
-    inspectConnection(kernelId: string, discoverMcp?: boolean): Promise<{
+    inspectConnection(kernelId: string, discoverMcp?: boolean, resumePush?: boolean): Promise<{
         apiUrl: string;
         version: string;
         accessAvailable: boolean;

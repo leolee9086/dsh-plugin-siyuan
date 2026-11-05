@@ -28,6 +28,10 @@ export declare class KernelAccessError extends Error {
         message: string;
     } | undefined;
 }
+/** 访问码登录拒绝和无效会话响应沿用访问暂停，避免后台反复撞认证。 */
+export declare class KernelLoginError extends KernelAccessError {
+    constructor(message: string, status?: 401 | 403 | 429, retryAfter?: string | null);
+}
 export declare function normalizeConfig(raw: unknown): ApiConfig;
 export interface KernelCaller {
     json(endpoint: string, payload: unknown, signal?: AbortSignal): Promise<Response>;
