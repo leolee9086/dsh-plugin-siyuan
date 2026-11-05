@@ -251,3 +251,49 @@ test('提交后订阅通知失败不会撤回已持久化配置和凭据', async
   assert.equal(stored.revision, saved.revision);
   await stop();
 });
+
+test('配置authCode后可通过loginAuth获得cookie并在WS和HTTP中认证', async t => {
+  let loginCalls = 0;
+  const server = await remote(t, async (request, response) => {
+    response.setHeader('content-type', 'application/json');
+    if (request.url === '/api/system/version') {
+      response.end(JSON.stringify({ code: 0, data: '3.8.10' }));
+      return;
+    }
+    if (request.url === '/api/system/loginAuth') {
+      loginCalls++;
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(chunk);
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (body.authCode === 'correct-code') {
+        response.setHeader('set-cookie', 'siyuan=session-cookie-ok; Path=/; HttpOnly');
+        response.end(JSON.stringify({ code: 0, msg: '', data: null }));
+      } else {
+        response.end(JSON.stringify({ code: -1, msg: 'wrong code' }));
+      }
+      return;
+    }
+    if (request.url === '/api/notebook/lsNotebooks') {
+      if (request.headers.cookie === 'siyuan=session-cookie-ok') {
+        response.end(JSON.stringify({ code: 0, data: { notebooks: [] } }));
+      } else {
+        response.writeHead(401);
+        response.end(JSON.stringify({ code: -1, msg: 'unauthorized' }));
+      }
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+
+  const domain = storage(), tokens = new Map<string, string>();
+  const manager = managerFor(t, domain, tokens);
+  await manager.initialize({ apiUrl: server.apiUrl });
+  const kernel = (await manager.publicState()).kernels[0]!;
+
+  await manager.saveKernel({ ...kernel, authCode: 'correct-code' });
+  assert.equal(tokens.get('DSH_SIYUAN_LOCAL_AUTHCODE'), 'correct-code');
+  const inspect = await manager.inspectConnection('local');
+  assert.equal(inspect.accessAvailable, true);
+  assert.equal(loginCalls, 1);
+});

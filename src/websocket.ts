@@ -66,13 +66,15 @@ export class SocketConnections {
     const heartbeatMs = options.heartbeatMs ?? 30000;
     if (!Number.isSafeInteger(heartbeatMs) || heartbeatMs < 0) throw new Error("heartbeatMs 必须为非负整数");
     const signal = this.http.signal(options.signal, 0);
+    await this.http.ensureSession(signal);
     const url = await this.http.resolveUrl(path, signal);
     signal.throwIfAborted();
     if (this.closed) throw new Error("WS 服务已卸载");
     url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     return new Promise((resolve, reject) => {
+      const headers = Object.fromEntries(this.http.headers(options.headers));
       const socket = new WebSocket(url, options.protocols, {
-        headers: Object.fromEntries(this.http.headers(options.headers)),
+        headers,
         handshakeTimeout: this.http.config.timeoutMs,
         followRedirects: false,
       });

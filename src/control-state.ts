@@ -38,7 +38,7 @@ function validKernel(value: unknown): value is Kernel {
   if (!isRecord(value) || typeof value.id !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.id)
     || typeof value.name !== "string" || !value.name.trim() || value.name.length > 100
     || typeof value.enabled !== "boolean" || typeof value.apiUrl !== "string"
-    || typeof value.timeoutMs !== "number" || "token" in value) return false;
+    || typeof value.timeoutMs !== "number" || "token" in value || "authCode" in value) return false;
   try { normalizeConfig(value); return true; } catch { return false; }
 }
 /** 旧配置允许省略连接默认项；把默认项真正写进副本后才校验完整 State。 */

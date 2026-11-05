@@ -24,6 +24,8 @@ export declare class HttpConnection {
     readonly contract: Contract;
     readonly discovery: KernelDiscovery;
     private resolvedEndpoint?;
+    private sessionCookie?;
+    private sessionPromise?;
     private readonly lifetime;
     private readonly router;
     private readonly tunnels;
@@ -37,6 +39,8 @@ export declare class HttpConnection {
         url: (path: string) => URL;
         fetch: (input: RequestInfo | URL, init?: RequestInit, options?: HttpOptions) => Promise<Response>;
     }>;
+    /** 获取或用 authCode 刷新 Cookie Session；思源开启访问码或锁屏密码时 WS 和内部页面依赖此 Cookie。 */
+    ensureSession(signal?: AbortSignal): Promise<string | undefined>;
     headers(input?: HeadersInit): Headers;
     signal(signal?: AbortSignal, timeoutMs?: number): AbortSignal;
     /** 原始 fetch 的 URL 必须属于这次解析的内核；会话消费者使用 bindFetch 固定目标。 */

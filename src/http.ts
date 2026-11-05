@@ -29,6 +29,8 @@ export class HttpConnection {
   readonly contract: Contract;
   readonly discovery: KernelDiscovery;
   private resolvedEndpoint?: string;
+  private sessionCookie?: string;
+  private sessionPromise?: Promise<string>;
   private readonly lifetime = new AbortController();
   private readonly router: Router;
   private readonly tunnels = new Set<Duplex>();
@@ -83,10 +85,46 @@ export class HttpConnection {
     };
   }
 
+  /** 获取或用 authCode 刷新 Cookie Session；思源开启访问码或锁屏密码时 WS 和内部页面依赖此 Cookie。 */
+  async ensureSession(signal?: AbortSignal): Promise<string | undefined> {
+    if (!this.config.authCode) return undefined;
+    if (this.sessionCookie) return this.sessionCookie;
+    if (this.sessionPromise) return this.sessionPromise;
+    const bounded = this.signal(signal);
+    this.sessionPromise = (async () => {
+      try {
+        const endpoint = await this.endpoint(bounded);
+        const url = this.url("/api/system/loginAuth", endpoint);
+        const response = await this.send(new Request(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ authCode: this.config.authCode }),
+          signal: bounded,
+        }));
+        if (!response.ok) {
+          throw new Error(`/api/system/loginAuth 响应 HTTP ${response.status}`);
+        }
+        const envelope = await response.json() as { code?: number; msg?: string };
+        if (envelope && typeof envelope.code === "number" && envelope.code !== 0) {
+          throw new Error(`思源访问授权码校验失败：${envelope.msg || `code=${envelope.code}`}`);
+        }
+        const setCookie = response.headers.get("set-cookie");
+        if (setCookie) {
+          this.sessionCookie = setCookie.split(";")[0]?.trim();
+        }
+        return this.sessionCookie ?? "";
+      } finally {
+        this.sessionPromise = undefined;
+      }
+    })();
+    return this.sessionPromise;
+  }
+
   headers(input?: HeadersInit): Headers {
     const headers = new Headers(input);
     // 固定配置的 token 只发送到固定内核，不转发到重定向地址。
     if (this.config.token) headers.set("authorization", `Token ${this.config.token}`);
+    if (this.sessionCookie && !headers.has("cookie")) headers.set("cookie", this.sessionCookie);
     return headers;
   }
 

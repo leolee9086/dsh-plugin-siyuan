@@ -2,6 +2,7 @@ export interface ApiConfig {
     /** auto 按思源本机登记发现；HTTP(S) 地址优先使用明确配置。 */
     apiUrl: string;
     token: string;
+    authCode?: string;
     timeoutMs: number;
     portFile?: string;
     kernelPid?: number;

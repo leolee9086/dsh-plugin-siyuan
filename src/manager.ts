@@ -53,10 +53,11 @@ export type Credentials = Pick<CredentialProvider, "set" | "unset"> & {
     Promise<Pick<Awaited<ReturnType<CredentialProvider["describe"]>>, "configured" | "writable">>;
 };
 type Runner = (connection: SiYuanConnection, name: string, args: ToolArgs, exec?: Execution) => Promise<{ summary: string }>;
-function refFor(id: string): CredentialRef {
+function refFor(id: string, kind: "token" | "authCode" = "token"): CredentialRef {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) throw new Error("思源核心 ID 无效");
+  const suffix = kind === "authCode" ? "_AUTHCODE" : "";
   // 已校验的核心 ID 经此固定转换满足凭据引用的 POSIX 标识符格式。
-  return `DSH_SIYUAN_${id.replace(/-/g, "_").toUpperCase()}` as CredentialRef;
+  return `DSH_SIYUAN_${id.replace(/-/g, "_").toUpperCase()}${suffix}` as CredentialRef;
 }
 const ajv = new Ajv({ strict: false });
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -167,8 +168,10 @@ export class KernelManager {
     else {
       const config = normalizeConfig(rawConfig);
       this.#secrets.remember(config.token);
-      if (config.token) await this.credentials.set(refFor("local"), config.token);
-      const { token: _token, ...publicConfig } = config;
+      if (config.authCode) this.#secrets.remember(config.authCode);
+      if (config.token) await this.credentials.set(refFor("local", "token"), config.token);
+      if (config.authCode) await this.credentials.set(refFor("local", "authCode"), config.authCode);
+      const { token: _token, authCode: _authCode, ...publicConfig } = config;
       this.#state = { revision: 1, kernels: [{ id: "local", name: "本机思源", enabled: true, ...publicConfig }],
         defaultKernelId: "local", grants: [], endpoints: [], sessions: {}, ruleSessions: {} };
       await this.#config.put("state", this.#state);
@@ -183,8 +186,10 @@ export class KernelManager {
   private async refreshSecrets() {
     try {
       for (const kernel of this.#state.kernels) {
-        const resolved = await this.credentials.resolve(refFor(kernel.id));
-        if (resolved) this.#secrets.remember(resolved.value);
+        const resolvedToken = await this.credentials.resolve(refFor(kernel.id, "token"));
+        if (resolvedToken) this.#secrets.remember(resolvedToken.value);
+        const resolvedAuthCode = await this.credentials.resolve(refFor(kernel.id, "authCode"));
+        if (resolvedAuthCode) this.#secrets.remember(resolvedAuthCode.value);
       }
     } catch { throw new Error("思源凭据服务不可用"); }
   }
@@ -208,16 +213,18 @@ export class KernelManager {
   private async connect(kernel: Kernel, signal?: AbortSignal): Promise<SiYuanConnection> {
     if (this.#closed) throw new Error("思源管理器已卸载");
     requireBoundKernel(kernel);
-    const resolved = await this.credentials.resolve(refFor(kernel.id));
-    const token = resolved?.value ?? ""; this.#secrets.remember(token);
-    let connection = new SiYuanConnection({ ...kernel, token });
+    const resolvedToken = await this.credentials.resolve(refFor(kernel.id, "token"));
+    const token = resolvedToken?.value ?? ""; this.#secrets.remember(token);
+    const resolvedAuthCode = await this.credentials.resolve(refFor(kernel.id, "authCode"));
+    const authCode = resolvedAuthCode?.value ?? ""; if (authCode) this.#secrets.remember(authCode);
+    let connection = new SiYuanConnection({ ...kernel, token, authCode });
     this.#connections.add(connection);
     try {
       if (kernel.apiUrl === "auto") {
         // 一次操作只发现一次，随后的所有协议请求固定此目标，不跨核心重试。
         const apiUrl = await connection.http.endpoint(signal);
         await connection.dispose(); this.#connections.delete(connection);
-        connection = new SiYuanConnection({ ...kernel, token, apiUrl }); this.#connections.add(connection);
+        connection = new SiYuanConnection({ ...kernel, token, authCode, apiUrl }); this.#connections.add(connection);
       }
       return connection;
     } catch (error) { await this.release(connection); throw this.#secrets.error(error); }
@@ -452,7 +459,9 @@ export class KernelManager {
   async publicState() {
     return { revision: this.#state.revision, defaultKernelId: this.#state.defaultKernelId, gateway: this.gatewayState(),
       kernels: await Promise.all(this.#state.kernels.map(async kernel => ({ ...kernel,
-        credential: await this.credentials.describe(refFor(kernel.id)), reminderPause: this.#push.pausedState(kernel.id) }))) };
+        credential: await this.credentials.describe(refFor(kernel.id, "token")),
+        authCodeCredential: await this.credentials.describe(refFor(kernel.id, "authCode")),
+        reminderPause: this.#push.pausedState(kernel.id) }))) };
   }
   endpoints(kernelId: string, filter: Parameters<typeof filterEndpoints>[3]) {
     this.kernel(kernelId); return filterEndpoints(this.catalog(kernelId), this.#state.grants, kernelId, filter);
@@ -482,31 +491,75 @@ export class KernelManager {
       }
       state.kernels = [...state.kernels.filter(item => item.id !== kernelId), kernel];
       // 凭据服务和配置存储是两个端口；配置提交失败时恢复凭据，让相同更新可以重试。
-      const ref = refFor(kernelId);
-      let previousCredential: string | undefined;
-      let credentialChanged = false, credentialWritten = false;
+      const refToken = refFor(kernelId, "token");
+      const refAuthCode = refFor(kernelId, "authCode");
+      let previousToken: string | undefined;
+      let previousAuthCode: string | undefined;
+      let credentialChanged = false;
+      let tokenWritten = false;
+      let authCodeWritten = false;
+
       if (input.token !== undefined && input.token !== "") {
         if (typeof input.token !== "string" || /[\r\n]/.test(input.token) || input.token.length > 8192) throw new Error("token 必须为单行文本");
         const token = input.token.trim();
-        previousCredential = (await this.credentials.resolve(ref))?.value;
-        credentialChanged = token !== (previousCredential?.trim() ?? "");
-        if (credentialChanged) {
-          this.#secrets.remember(token); await this.credentials.set(ref, token); credentialWritten = true;
+        previousToken = (await this.credentials.resolve(refToken))?.value;
+        const changed = token !== (previousToken?.trim() ?? "");
+        if (changed) {
+          this.#secrets.remember(token); await this.credentials.set(refToken, token);
+          tokenWritten = true; credentialChanged = true;
         }
       } else if (input.clearToken === true) {
-        previousCredential = (await this.credentials.resolve(ref))?.value;
-        credentialChanged = !!previousCredential?.trim();
-        if (previousCredential !== undefined) { await this.credentials.unset(ref); credentialWritten = true; }
+        previousToken = (await this.credentials.resolve(refToken))?.value;
+        const changed = !!previousToken?.trim();
+        if (previousToken !== undefined) {
+          await this.credentials.unset(refToken);
+          tokenWritten = true;
+          if (changed) credentialChanged = true;
+        }
       }
+
+      if (input.authCode !== undefined && input.authCode !== "") {
+        if (typeof input.authCode !== "string" || /[\r\n]/.test(input.authCode) || input.authCode.length > 8192) throw new Error("authCode 必须为单行文本");
+        const authCode = input.authCode.trim();
+        previousAuthCode = (await this.credentials.resolve(refAuthCode))?.value;
+        const changed = authCode !== (previousAuthCode?.trim() ?? "");
+        if (changed) {
+          this.#secrets.remember(authCode); await this.credentials.set(refAuthCode, authCode);
+          authCodeWritten = true; credentialChanged = true;
+        }
+      } else if (input.clearAuthCode === true) {
+        previousAuthCode = (await this.credentials.resolve(refAuthCode))?.value;
+        const changed = !!previousAuthCode?.trim();
+        if (previousAuthCode !== undefined) {
+          await this.credentials.unset(refAuthCode);
+          authCodeWritten = true;
+          if (changed) credentialChanged = true;
+        }
+      }
+
       connectionChanged ||= credentialChanged;
       // 仅补偿持久写入失败；提交后的订阅通知失败不能把凭据撤回旧版本。
       try { await this.persist(state); }
       catch (error) {
-        if (credentialWritten) {
+        let rollbackFailed = false;
+        if (tokenWritten) {
           try {
-            if (previousCredential === undefined) await this.credentials.unset(ref);
-            else await this.credentials.set(ref, previousCredential);
-          } catch { throw new Error("核心配置保存失败，且凭据未能恢复；请在编辑页重新核对并保存凭据"); }
+            if (previousToken === undefined) await this.credentials.unset(refToken);
+            else await this.credentials.set(refToken, previousToken);
+          } catch {
+            rollbackFailed = true;
+          }
+        }
+        if (authCodeWritten) {
+          try {
+            if (previousAuthCode === undefined) await this.credentials.unset(refAuthCode);
+            else await this.credentials.set(refAuthCode, previousAuthCode);
+          } catch {
+            rollbackFailed = true;
+          }
+        }
+        if (rollbackFailed) {
+          throw new Error("核心配置保存失败，且凭据未能恢复；请在编辑页重新核对并保存凭据");
         }
         throw this.#secrets.error(error);
       }
@@ -525,7 +578,9 @@ export class KernelManager {
         for (const [sessionId, value] of Object.entries(selections)) if (value === id) delete selections[sessionId];
       }
       // 先撤去连接和授权，再清理秘密；清理失败不会让已删除核心继续使用。
-      await this.commit(state); await this.credentials.unset(refFor(id));
+      await this.commit(state);
+      await this.credentials.unset(refFor(id, "token"));
+      await this.credentials.unset(refFor(id, "authCode"));
     });
   }
   async select(kernelId: string | null, sessionId?: string) {
@@ -619,7 +674,9 @@ export class KernelManager {
     try {
       const version = await callKernel(connection, "/api/system/version");
       if (typeof version !== "string") throw new Error("内核版本响应无效");
-      // version 是公开端点；受保护的只读接口确认访问能力，不能单凭成功响应证明代理透传了 token。
+      // version 是公开端点；若配置了 authCode，先确保获取会话 Cookie
+      await connection.http.ensureSession();
+      // 受保护的只读接口确认访问能力，不能单凭成功响应证明代理透传了 token。
       const auth = await connection.json("/api/notebook/lsNotebooks", {});
       if (revision === this.#state.revision && (auth.status === 401 || auth.status === 403 || auth.status === 429)) {
         this.#push.pause(kernelId, new KernelAccessError(auth.status, auth.headers.get("retry-after")));
@@ -670,7 +727,7 @@ export class KernelManager {
         });
       }
       return { apiUrl: this.#secrets.text(connection.config.apiUrl), version: this.#secrets.text(version), accessAvailable: true,
-        credentialSent: !!connection.config.token, mcpTools: count };
+        credentialSent: !!(connection.config.token || connection.config.authCode), mcpTools: count };
     } catch (error) {
       if (revision === this.#state.revision) this.#push.pause(kernelId, error);
       throw this.#secrets.error(error);

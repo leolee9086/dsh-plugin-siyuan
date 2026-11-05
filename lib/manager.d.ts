@@ -157,6 +157,7 @@ export declare class KernelManager {
         };
         kernels: {
             credential: Pick<import("@deepseek-ai/dsh-credentials").CredentialInfo, "configured" | "writable">;
+            authCodeCredential: Pick<import("@deepseek-ai/dsh-credentials").CredentialInfo, "configured" | "writable">;
             reminderPause: {
                 reason: "authentication" | "permission" | "rate-limit" | "protocol";
                 message: string;

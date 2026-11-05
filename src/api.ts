@@ -5,6 +5,7 @@ export interface ApiConfig {
   /** auto 按思源本机登记发现；HTTP(S) 地址优先使用明确配置。 */
   apiUrl: string;
   token: string;
+  authCode?: string;
   timeoutMs: number;
   portFile?: string;
   kernelPid?: number;
@@ -64,11 +65,14 @@ export function normalizeConfig(raw: unknown): ApiConfig {
   }
   const token = input.token ?? "";
   if (typeof token !== "string" || /[\r\n]/.test(token)) throw new TypeError("token 必须为单行字符串");
+  const authCode = input.authCode ?? "";
+  if (typeof authCode !== "string" || /[\r\n]/.test(authCode)) throw new TypeError("authCode 必须为单行字符串");
   const timeoutMs = input.timeoutMs ?? 15000;
   if (typeof timeoutMs !== "number" || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
     throw new TypeError("timeoutMs 必须为正整数");
   }
   return { apiUrl, token: token.trim(), timeoutMs,
+    ...(authCode.trim() ? { authCode: authCode.trim() } : {}),
     ...(portFile === undefined ? {} : { portFile: portFile as string }),
     ...(kernelPid === undefined ? {} : { kernelPid: kernelPid as number }) };
 }

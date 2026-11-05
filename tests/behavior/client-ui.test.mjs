@@ -59,8 +59,11 @@ test("工具卡片区分准备、执行和失败，不把协议错误标为成�
 
 test("核心表单从明确 props 显示编辑值，密码框从不回填", () => {
   const markup = render(ui.KernelForm, { kernel: config.kernels[0], busy: false });
-  assert.match(markup, /value="本机思源"/); assert.match(markup, /已配置；留空保留/);
-  assert.match(markup, /type="password"/); assert.doesNotMatch(markup, /type="password"[^>]*value=/);
+  assert.match(markup, /value="本机思源"/);
+  assert.match(markup, /API Token（常规 API 读写接口）/);
+  assert.match(markup, /访问授权码 \/ 锁屏密码（WebSocket 与长连接）/);
+  assert.match(markup, /type="password"/);
+  assert.doesNotMatch(markup, /type="password"[^>]*value=/);
 });
 
 test("端点面板用 props 展示搜索过滤、分页和授权确认目标", () => {
